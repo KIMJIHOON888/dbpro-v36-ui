@@ -26,6 +26,31 @@
   console.log('[SB] 대상 금고:', SB_URL.replace('https://',''));
 })();
 </script>
+<!-- ===== [v13 / 2-2] 로그인 게이트 스타일 (추가만, 기존 테마 불변) ===== -->
+<style id="login-gate-css">
+#loginGate{position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(135deg,#0f172a,#1e293b);padding:20px;}
+#loginGate.hidden{display:none;}
+#loginGate .lg-card{width:340px;max-width:90vw;background:#fff;border-radius:16px;padding:30px 26px;
+  box-shadow:0 20px 60px rgba(0,0,0,.45);}
+#loginGate .lg-brand{text-align:center;margin-bottom:20px;}
+#loginGate .lg-brand h1{font-size:20px;font-weight:800;color:#0f172a;margin:0;letter-spacing:-.01em;}
+#loginGate .lg-brand p{font-size:12px;color:#64748b;margin:5px 0 0;}
+#loginGate .lg-field{margin-bottom:12px;}
+#loginGate .lg-field label{display:block;font-size:12px;font-weight:700;color:#475569;margin-bottom:5px;}
+#loginGate .lg-field input{width:100%;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:9px;
+  padding:11px 12px;font-size:14px;color:#0f172a;}
+#loginGate .lg-field input:focus{outline:none;border-color:#2f6df0;box-shadow:0 0 0 3px rgba(47,109,240,.15);}
+#loginGate .lg-btn{width:100%;border:none;border-radius:9px;padding:12px;background:#0f172a;color:#fff;
+  font-size:14px;font-weight:700;cursor:pointer;margin-top:6px;}
+#loginGate .lg-btn:disabled{opacity:.6;cursor:default;}
+#loginGate .lg-err{min-height:18px;font-size:12.5px;color:#dc2626;margin-top:8px;text-align:center;}
+#loginGate .lg-note{font-size:11px;color:#94a3b8;text-align:center;margin-top:14px;line-height:1.5;}
+#logoutBtn{position:fixed;top:10px;left:10px;z-index:9998;display:none;border:1px solid #cbd5e1;background:#fff;
+  color:#475569;border-radius:8px;padding:6px 10px;font-size:12px;font-weight:700;cursor:pointer;
+  box-shadow:0 2px 8px rgba(0,0,0,.08);}
+#logoutBtn.show{display:block;}
+</style>
 <style id="theme">
 :root{
   --bg:#f4f7f9; --bg2:var(--track); --card:#ffffff; --ink:#0f172a; --ink2:#475569; --muted:#94a3b8;
@@ -1291,6 +1316,100 @@ el('filtPin').textContent='필독만';
 applyLayout();
 renderAll();
 updateTeamBtn();
+</script>
+
+<!-- ===== [v13 / 2-2] 로그인 게이트 markup (추가만) ===== -->
+<div id="loginGate">
+  <div class="lg-card">
+    <div class="lg-brand"><h1>DB PRO MASTER</h1><p>통합 대시보드 로그인 · 연습 금고(db-pro-test)</p></div>
+    <div class="lg-field"><label>전화번호</label>
+      <input id="lgPhone" type="tel" inputmode="numeric" placeholder="01011111111" autocomplete="username"></div>
+    <div class="lg-field"><label>비밀번호</label>
+      <input id="lgPw" type="password" placeholder="비밀번호" autocomplete="current-password"></div>
+    <button class="lg-btn" id="lgBtn">로그인</button>
+    <div class="lg-err" id="lgErr"></div>
+    <div class="lg-note">테스트 환경입니다. 문제가 있으면 관리자에게 문의하세요.</div>
+  </div>
+</div>
+<button id="logoutBtn">로그아웃</button>
+
+<!-- ===== [v13 / 2-2] 로그인 엔진 (v35 동일 사양 이식) ===== -->
+<script id="login-engine">
+(function(){
+  var gate     = document.getElementById('loginGate');
+  var phoneIn  = document.getElementById('lgPhone');
+  var pwIn     = document.getElementById('lgPw');
+  var btn      = document.getElementById('lgBtn');
+  var errEl    = document.getElementById('lgErr');
+  var logoutBtn= document.getElementById('logoutBtn');
+
+  /* v35 동일: 전화번호(숫자만) → 이메일 변환 */
+  function phoneToEmail(phone){ return 'u' + String(phone||'').replace(/\D/g,'') + '@dbpro.app'; }
+
+  function showGate(){ gate.classList.remove('hidden'); logoutBtn.classList.remove('show'); }
+  function hideGate(){ gate.classList.add('hidden');    logoutBtn.classList.add('show');    }
+  function setErr(m){ errEl.textContent = m || ''; }
+  function busy(on){ btn.disabled = on; btn.textContent = on ? '로그인 중…' : '로그인'; }
+
+  if(!window.sbClient){ setErr('서버 연결 모듈을 불러오지 못했습니다. 새로고침 해주세요.'); return; }
+
+  /* 로그인 성공 후: 본인 정보(app_users) 조회 → 인증된 읽기까지 검증 + 상단 표시 */
+  async function afterLogin(session){
+    try{
+      var uid = session.user.id;
+      var r = await window.sbClient.from('app_users').select('name,team,role').eq('auth_id', uid).maybeSingle();
+      var me = r && r.data;
+      if(me){
+        console.log('%c[LOGIN] 성공','color:#0f9d6b;font-weight:bold', me);
+        var who = document.getElementById('whoName'); if(who) who.textContent = me.name || '';
+        var roleKor = {system_admin:'시스템관리자', branch_manager:'BM(지점장)', team_manager:'SM', member:'팀원'};
+        var wr = document.getElementById('whoRole'); if(wr) wr.textContent = (roleKor[me.role] || me.role) + ' 권한 접속중';
+      } else {
+        console.warn('[LOGIN] 인증은 되었으나 app_users에 등록 정보가 없습니다.', uid);
+      }
+    }catch(e){ console.warn('[LOGIN] 본인정보 조회 경고:', e && e.message); }
+    hideGate();
+  }
+
+  async function doLogin(){
+    setErr('');
+    var phone = (phoneIn.value||'').trim();
+    var pw    = (pwIn.value||'').trim();
+    if(!phone || !pw){ setErr('전화번호와 비밀번호를 입력하세요.'); return; }
+    busy(true);
+    try{
+      var email = phoneToEmail(phone);
+      var res = await window.sbClient.auth.signInWithPassword({ email: email, password: pw });
+      if(res.error){
+        setErr('전화번호 또는 비밀번호가 올바르지 않습니다.');
+        console.warn('[LOGIN] 실패:', res.error.message);
+        busy(false); return;
+      }
+      await afterLogin(res.data.session);
+    }catch(e){
+      setErr('로그인 중 오류가 발생했습니다. 잠시 후 다시 시도하세요.');
+      console.error('[LOGIN] 예외:', e);
+    }finally{ busy(false); }
+  }
+
+  btn.addEventListener('click', doLogin);
+  pwIn.addEventListener('keydown',   function(e){ if(e.key==='Enter') doLogin(); });
+  phoneIn.addEventListener('keydown',function(e){ if(e.key==='Enter') pwIn.focus(); });
+  logoutBtn.addEventListener('click', async function(){
+    try{ await window.sbClient.auth.signOut(); }catch(e){}
+    showGate(); phoneIn.value=''; pwIn.value=''; setErr('');
+    console.log('[LOGIN] 로그아웃');
+  });
+
+  /* 새로고침 시 세션 유지: 기존 세션 있으면 자동 진입, 없으면 로그인 화면 */
+  (async function(){
+    try{
+      var s = await window.sbClient.auth.getSession();
+      if(s && s.data && s.data.session){ await afterLogin(s.data.session); }
+      else { showGate(); }
+    }catch(e){ showGate(); }
+  })();
+})();
 </script>
 </body>
 </html>
