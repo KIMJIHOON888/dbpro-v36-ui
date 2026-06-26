@@ -1343,7 +1343,7 @@ updateTeamBtn();
     <div class="auth-box">
       <div class="auth-brand"><i class="fa-solid fa-server"></i></div>
       <h2 class="auth-title"><i class="fa-solid fa-server"></i>DB Pro Master</h2>
-      <div class="auth-version">통합 대시보드</div>
+      <div class="auth-version">v36 통합 UI</div>
       <div class="auth-credit">Developed by. Jihoon Kim</div>
 
       <input type="tel" id="login-phone" class="auth-input"
@@ -1362,7 +1362,7 @@ updateTeamBtn();
     <div class="auth-box">
       <div class="auth-brand"><i class="fa-solid fa-user-plus"></i></div>
       <h2 class="auth-title"><i class="fa-solid fa-user-plus"></i>회원가입</h2>
-      <div class="auth-version">통합 대시보드</div>
+      <div class="auth-version">v36 통합 UI</div>
       <div class="auth-credit" style="margin-bottom:22px">팀원 가입 신청</div>
 
       <div id="signup-msg" class="auth-msg"></div>
@@ -1401,7 +1401,7 @@ updateTeamBtn();
     <div class="auth-box">
       <div class="auth-brand"><i class="fa-solid fa-key"></i></div>
       <h2 class="auth-title"><i class="fa-solid fa-key"></i>비밀번호 문의</h2>
-      <div class="auth-version">통합 대시보드</div>
+      <div class="auth-version">v36 통합 UI</div>
       <div class="auth-credit" style="margin-bottom:22px">계정 비밀번호 재설정</div>
 
       <div id="forgot-msg" class="auth-msg"></div>
@@ -1697,5 +1697,60 @@ updateTeamBtn();
   })();
 })();
 </script>
+
+<!-- ===== [v17 / B-2 보강] v35 입력 동작 이식: 전화번호 자동 하이픈(11자리 제한) + 비밀번호 눈 표시 ===== -->
+<script id="auth-input-enhance">
+(function(){
+  /* v35 그대로: 전화번호 자동 하이픈 + 11자리(010+8) 초과 입력 차단 */
+  function autoHyphen(input){
+    var ie = window.event || {};
+    var isDelete = (ie.inputType==='deleteContentBackward'||ie.inputType==='deleteContentForward'||ie.inputType==='deleteByCut');
+    var digits = input.value.replace(/[^0-9]/g,'');
+    if(digits.length>11) digits = digits.slice(0,11);     // ★ 11자리 초과 차단
+    var f='';
+    if(digits.length===0) f='';
+    else if(digits.length<3) f=digits;
+    else if(digits.length===3) f = isDelete?digits:(digits+'-');
+    else if(digits.length<7) f=digits.slice(0,3)+'-'+digits.slice(3);
+    else if(digits.length===7) f = isDelete ? (digits.slice(0,3)+'-'+digits.slice(3)) : (digits.slice(0,3)+'-'+digits.slice(3)+'-');
+    else if(digits.length===10) f=digits.slice(0,3)+'-'+digits.slice(3,6)+'-'+digits.slice(6);
+    else f=digits.slice(0,3)+'-'+digits.slice(3,7)+'-'+digits.slice(7);
+    if(input.value!==f) input.value=f;
+  }
+  ['login-phone','signup-phone','forgot-phone'].forEach(function(id){
+    var el=document.getElementById(id);
+    if(el && !el.__hyphen){ el.addEventListener('input', function(){ autoHyphen(this); }); el.__hyphen=true; }
+  });
+
+  /* v35 그대로: 비밀번호 보기(눈) 토글 — 클릭할 때만 type 전환(IME 충돌 없음) */
+  function addEye(id){
+    var input=document.getElementById(id);
+    if(!input) return;
+    if(input.parentElement && input.parentElement.classList.contains('pw-wrap')) return;
+    var cs=getComputedStyle(input);
+    var wrap=document.createElement('div');
+    wrap.className='pw-wrap';
+    wrap.style.cssText='position:relative;width:100%';
+    wrap.style.marginBottom=cs.marginBottom;        // 입력칸 아래 여백을 래퍼로 이전(눈 수직중앙 정렬)
+    input.parentNode.insertBefore(wrap,input);
+    wrap.appendChild(input);
+    input.style.marginBottom='0';
+    input.style.paddingRight='44px';                // 눈 버튼 자리 확보
+    var eye=document.createElement('button');
+    eye.type='button'; eye.className='pw-eye';
+    eye.setAttribute('aria-label','비밀번호 표시/숨기기'); eye.setAttribute('tabindex','-1');
+    eye.innerHTML='<i class="fa-solid fa-eye"></i>';
+    eye.style.cssText='position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#94a3b8;font-size:15px;padding:8px;line-height:1';
+    wrap.appendChild(eye);
+    eye.addEventListener('mousedown', function(e){ e.preventDefault(); });   // 포커스 유지
+    eye.addEventListener('click', function(){
+      if(input.type==='password'){ input.type='text';  eye.innerHTML='<i class="fa-solid fa-eye-slash"></i>'; eye.style.color='#2563eb'; }
+      else                       { input.type='password'; eye.innerHTML='<i class="fa-solid fa-eye"></i>';       eye.style.color='#94a3b8'; }
+    });
+  }
+  ['login-pw','signup-pw','signup-pw2'].forEach(addEye);
+})();
+</script>
+
 </body>
 </html>
