@@ -1418,6 +1418,48 @@ updateTeamBtn();
   if(!sb){ setErr('서버 연결 모듈을 불러오지 못했습니다. 새로고침 해주세요.'); return; }
 
   /* 로그인 성공 → 대시보드 진입(상단 표시 갱신) */
+  /* [v16 / 2-4b] 오늘(KST) yyyy-mm-dd */
+  function getTodayKST(){
+    var now = new Date();
+    var kst = new Date(now.getTime() + (now.getTimezoneOffset()*60000) + 9*3600000);
+    return kst.getFullYear() + '-' + String(kst.getMonth()+1).padStart(2,'0') + '-' + String(kst.getDate()).padStart(2,'0');
+  }
+
+  /* [v16 / 2-4b] app_users 실데이터 → 당월 신규입사자 + 팀별 인원/증감 + 팀 SM 이름 */
+  async function loadPeople(){
+    try{
+      var r = await sb.from('app_users').select('name,team,role,status,referrer,joined_at,is_new');
+      if(r.error){ console.warn('[2-4b] app_users 조회 실패:', r.error.message); return; }
+      var users = r.data || [];
+      var teamMap = {'1팀':'t1','2팀':'t2','3팀':'t3','4팀':'t4'};
+      var now = new Date();
+      var ym = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0');   // 이번 달 yyyy-mm
+      var head={t1:0,t2:0,t3:0,t4:0}, delta={t1:0,t2:0,t3:0,t4:0}, smByTeam={}, recruits=[];
+      users.forEach(function(u){
+        if(u.status !== 'approved') return;
+        var tk = teamMap[u.team];
+        if(!tk) return;                                  // '전체'(관리자/BM) 제외
+        head[tk]++;
+        if(u.role === 'team_manager') smByTeam[tk] = u.name;
+        var joinedThisMonth = u.joined_at && String(u.joined_at).slice(0,7) === ym;
+        if(joinedThisMonth && u.is_new === true){        // 당월 신규입사자(신입)
+          delta[tk]++;
+          recruits.push({ name:u.name, ref:(u.referrer || '-'), team:tk });
+        }
+      });
+      if(window.DATA){
+        window.DATA.recruits = recruits;
+        window.DATA.teams.forEach(function(t){
+          if(head[t.id] !== undefined){ t.head = head[t.id]; t.delta = delta[t.id]; }
+          if(smByTeam[t.id]) t.sm = smByTeam[t.id];
+        });
+        if(typeof window.renderRecruit === 'function') window.renderRecruit();
+        if(typeof window.renderWorkshop === 'function') window.renderWorkshop();
+      }
+      console.log('[2-4b] 인원 반영:', { head:head, delta:delta, 신규입사자:recruits.length });
+    }catch(e){ console.warn('[2-4b] loadPeople 경고:', e && e.message); }
+  }
+
   function enterDashboard(me){
     console.log('%c[LOGIN] 성공','color:#0f9d6b;font-weight:bold',
       {name:me.name, team:me.team, role:me.role, status:me.status});
@@ -1447,6 +1489,7 @@ updateTeamBtn();
     var teamKor = (me.team && me.team !== '전체') ? ' · ' + me.team : '';
     var wr = document.getElementById('whoRole'); if(wr) wr.textContent = (roleKor[me.role]||me.role) + teamKor + ' 권한 접속중';
     hideGate();
+    loadPeople();   /* [2-4b] 로그인 후 실데이터로 신규입사자/팀별 인원 반영 */
   }
 
   /* ── 로그인 (v35 doLogin 사양: 인증 → app_users 조회 → 상태검증 → 기록) ── */
@@ -1540,7 +1583,8 @@ updateTeamBtn();
         var isBoot = (bStatus==='approved');
         var ins = await sb.from('app_users').insert({
           auth_id: su.data.user.id, name:name, team:bTeam, role:bRole,
-          phone:phone, email:email, referrer: referrer||null, status:bStatus
+          phone:phone, email:email, referrer: referrer||null, status:bStatus,
+          joined_at: getTodayKST(), is_new: (bRole==='member')   /* [2-4b] 당월 신규입사자/신입뱃지 표시용 */
         });
         if(ins.error){ console.error('[SIGNUP] INSERT 에러:', ins.error); throw ins.error; }
         if(isBoot){
