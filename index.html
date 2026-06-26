@@ -32,26 +32,26 @@
 #loginGate{position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;
   background:linear-gradient(135deg,#1e293b 0%,#0f172a 100%);padding:20px;overflow-y:auto;}
 #loginGate.hidden{display:none;}
-#loginGate .auth-box{background:#fff;border-radius:20px;padding:34px 30px;width:100%;max-width:420px;margin:auto;
+#loginGate .auth-box{background:#fff;border-radius:24px;padding:36px 32px;width:100%;max-width:440px;margin:auto;
   box-shadow:0 25px 50px -12px rgba(15,23,42,.45);}
-#loginGate .auth-brand{width:56px;height:56px;border-radius:15px;margin:0 auto 14px;display:flex;align-items:center;
+#loginGate .auth-brand{width:60px;height:60px;border-radius:16px;margin:0 auto 16px;display:flex;align-items:center;
   justify-content:center;background:linear-gradient(135deg,#1e2a44,#0f172a);color:#fff;font-size:23px;
   box-shadow:0 8px 20px rgba(15,23,42,.28);}
-#loginGate .auth-title{font-size:21px;color:#0f172a;text-align:center;margin:0 0 4px;letter-spacing:-.02em;font-weight:800;}
+#loginGate .auth-title{font-size:22px;color:#0f172a;text-align:center;margin:0 0 6px;letter-spacing:-.02em;font-weight:800;}
 #loginGate .auth-title i{margin-right:8px;color:#1e2a44;}
-#loginGate .auth-version{text-align:center;font-size:12.5px;color:#64748b;margin-bottom:3px;font-weight:600;}
-#loginGate .auth-credit{text-align:center;font-size:11px;color:#94a3b8;margin-bottom:22px;font-style:italic;letter-spacing:.04em;}
-#loginGate .auth-input{width:100%;box-sizing:border-box;padding:12px 14px;border:1.5px solid #cbd5e1;border-radius:10px;
-  font-size:14px;margin-bottom:11px;font-family:inherit;color:#0f172a;background:#fff;transition:.15s;}
+#loginGate .auth-version{text-align:center;font-size:13px;color:#64748b;margin-bottom:4px;font-weight:600;}
+#loginGate .auth-credit{text-align:center;font-size:11px;color:#94a3b8;margin-bottom:24px;font-style:italic;letter-spacing:.04em;}
+#loginGate .auth-input{width:100%;box-sizing:border-box;padding:13px 16px;border:1.5px solid #cbd5e1;border-radius:10px;
+  font-size:14px;margin-bottom:12px;font-family:inherit;color:#0f172a;background:#fff;transition:.15s;}
 #loginGate .auth-input:focus{outline:none;border-color:#2563eb;box-shadow:0 0 0 3px rgba(37,99,235,.15);}
-#loginGate .auth-btn{width:100%;padding:13px;border:none;border-radius:10px;font-size:15px;font-weight:700;
+#loginGate .auth-btn{width:100%;padding:14px;border:none;border-radius:10px;font-size:15px;font-weight:700;
   cursor:pointer;transition:.15s;font-family:inherit;margin-bottom:8px;
   background:linear-gradient(135deg,#1e2a44,#0f172a);color:#fff;}
 #loginGate .auth-btn:hover{transform:translateY(-1px);box-shadow:0 8px 20px rgba(15,23,42,.3);}
 #loginGate .auth-btn:disabled{background:#94a3b8;cursor:default;transform:none;box-shadow:none;}
-#loginGate .auth-link{text-align:center;font-size:13px;color:#2563eb;cursor:pointer;padding:7px;text-decoration:none;display:block;}
+#loginGate .auth-link{text-align:center;font-size:13px;color:#2563eb;cursor:pointer;padding:8px;text-decoration:none;display:block;}
 #loginGate .auth-link:hover{text-decoration:underline;}
-#loginGate .auth-msg{padding:11px 12px;border-radius:8px;margin-bottom:11px;font-size:13px;display:none;
+#loginGate .auth-msg{padding:12px;border-radius:8px;margin-bottom:12px;font-size:13px;display:none;
   white-space:pre-line;line-height:1.55;word-break:keep-all;}
 #loginGate .auth-msg.show{display:block;}
 #loginGate .auth-msg.error{background:#fef2f2;color:#991b1b;border:1px solid #fecaca;}
@@ -63,6 +63,13 @@
   font-size:12px;color:#991b1b;margin:2px 0 11px;line-height:1.6;font-weight:600;}
 #loginGate .auth-info{background:#dbeafe;border:1px solid #bfdbfe;padding:10px 12px;border-radius:8px;
   font-size:12px;color:#1e3a8a;margin:2px 0 11px;line-height:1.5;}
+#loginGate .auth-warn{display:none;font-size:11px;color:#dc2626;background:#fef2f2;border:1px solid #fecaca;
+  border-radius:6px;padding:6px 10px;margin:-4px 0 10px;line-height:1.45;}
+#lg-help-modal{position:fixed;inset:0;z-index:100000;display:none;align-items:center;justify-content:center;
+  background:rgba(15,23,42,.55);padding:20px;}
+#lg-help-modal.show{display:flex;}
+#lg-help-modal .lg-modal-box{background:#fff;border-radius:16px;max-width:440px;width:100%;padding:24px;
+  box-shadow:0 25px 50px -12px rgba(0,0,0,.45);max-height:88vh;overflow:auto;}
 #logoutBtn{position:fixed;top:10px;left:10px;z-index:9998;display:none;border:1px solid #cbd5e1;background:#fff;
   color:#475569;border-radius:8px;padding:6px 10px;font-size:12px;font-weight:700;cursor:pointer;
   box-shadow:0 2px 8px rgba(0,0,0,.08);}
@@ -1350,10 +1357,12 @@ updateTeamBtn();
         placeholder="휴대폰 번호 (예: 010-1234-5678)" autocomplete="tel" inputmode="numeric" maxlength="13">
       <input type="password" id="login-pw" class="auth-input"
         placeholder="비밀번호" autocomplete="current-password">
+      <div id="login-pw-warn" class="auth-warn"></div>
       <div id="login-msg" class="auth-msg"></div>
       <button class="auth-btn" id="btn-login"><i class="fa-solid fa-right-to-bracket"></i>&nbsp; 로그인</button>
       <a class="auth-link" id="link-to-signup">처음이신가요? 회원가입 &rarr;</a>
       <a class="auth-link" id="link-to-forgot">비밀번호를 잊으셨나요?</a>
+      <a class="auth-link" id="link-login-help" style="color:#94a3b8;font-size:12px">&#10067; 로그인이 안 되시나요?</a>
     </div>
   </div>
 
@@ -1381,8 +1390,10 @@ updateTeamBtn();
         placeholder="도입자 이름 (없으면 pass)" autocomplete="off">
       <input type="password" id="signup-pw" class="auth-input"
         placeholder="비밀번호 (영문·숫자 6자 이상)" autocomplete="new-password" minlength="6">
+      <div id="signup-pw-warn" class="auth-warn"></div>
       <input type="password" id="signup-pw2" class="auth-input"
         placeholder="비밀번호 확인" autocomplete="new-password">
+      <div id="signup-pw2-warn" class="auth-warn"></div>
 
       <div class="auth-notice">
         &#9888;&#65039; <b>중요 안내</b><br>
@@ -1416,11 +1427,37 @@ updateTeamBtn();
 
 </div>
 <button id="logoutBtn">로그아웃</button>
+<div id="lg-help-modal"><div class="lg-modal-box" id="lg-help-body"></div></div>
 
 <!-- ===== [v14 / 2-3] 로그인·회원가입 엔진 (v35 사양 이식 + 팀 선택) ===== -->
 <script id="login-engine">
 (function(){
   var sb = window.sbClient;
+  var loginFail = 0;   /* v35: 로그인 연속 실패 카운터 */
+  function showLoginHelp(){
+    var body = document.getElementById('lg-help-body');
+    var modal = document.getElementById('lg-help-modal');
+    if(!body || !modal) return;
+    body.innerHTML =
+      '<div style="font-size:16px;font-weight:800;color:#0f172a;margin-bottom:12px">'
+      + '<i class="fa-solid fa-circle-question" style="color:#2563eb"></i>&nbsp; 로그인이 안 되시나요?</div>'
+      + '<div style="font-size:13px;line-height:1.7;color:#334155">아래 항목을 차례대로 확인해주세요:'
+      + '<ol style="padding-left:20px;margin:12px 0">'
+      + '<li style="margin-bottom:8px"><b>회원가입 먼저</b> — 처음 사용이라면 "처음이신가요? 회원가입 →"로 가입 후 매니저 승인을 받아야 합니다</li>'
+      + '<li style="margin-bottom:8px"><b>매니저 승인 대기 확인</b> — 가입 신청 후 매니저(SM) 승인이 완료되어야 로그인 가능합니다</li>'
+      + '<li style="margin-bottom:8px"><b>한/영 키 확인</b> — 비밀번호가 한글 모드로 입력되면 실패합니다 (비번 칸 아래 경고 표시)</li>'
+      + '<li style="margin-bottom:8px"><b>Caps Lock 확인</b> — 대소문자가 뒤바뀌면 실패합니다</li>'
+      + '<li style="margin-bottom:8px"><b>폰번호 형식</b> — 010-1234-5678 (하이픈 자동 입력)</li>'
+      + '<li><b>비밀번호 분실</b> — "비밀번호를 잊으셨나요?" 클릭 후 매니저에게 임시 비번 요청</li>'
+      + '</ol>'
+      + '<div style="background:#fef3c7;border:1.5px solid #fbbf24;border-radius:8px;padding:10px 12px;margin-top:12px;font-size:12px;color:#92400e">💡 모두 확인했는데도 안 되면 <b>매니저에게 문의</b>해주세요.</div>'
+      + '</div>'
+      + '<button class="auth-btn" id="lg-help-close" style="margin-top:16px">확인</button>';
+    modal.classList.add('show');
+    var c = document.getElementById('lg-help-close');
+    if(c) c.addEventListener('click', function(){ modal.classList.remove('show'); });
+    modal.addEventListener('click', function(e){ if(e.target===modal) modal.classList.remove('show'); });
+  }
   var gate      = document.getElementById('loginGate');
   var loginScr  = document.getElementById('login-screen');
   var signupScr = document.getElementById('signup-screen');
@@ -1552,7 +1589,7 @@ updateTeamBtn();
   async function doLogin(){
     setMsg(loginMsg,'');
     var phone = normalizePhone(phoneIn.value);
-    var pw = (pwIn.value||'').trim();
+    var pw = (window.koToEng ? window.koToEng(pwIn.value||'') : (pwIn.value||'')).trim();   /* v35: 한글→영문 변환 */
     if(hasKorean(pw)) return setMsg(loginMsg,'비밀번호에 한글이 포함되어 있습니다.\n한/영 키를 영문으로 바꿔 다시 입력해주세요.','error');
     if(!phone || phone.length<10) return setMsg(loginMsg,'전화번호를 정확히 입력해주세요.','error');
     if(!pw) return setMsg(loginMsg,'비밀번호를 입력해주세요.','error');
@@ -1572,10 +1609,13 @@ updateTeamBtn();
       sb.from('app_users').update({ last_login_at: nowIso }).eq('id', me.id).then(function(){}).catch(function(){});
       try{ sb.from('login_logs').insert({ member_name: me.name, team: me.team||null, logged_at: nowIso })
             .then(function(r){ if(r&&r.error) console.warn('[login_logs]', r.error.message); }).catch(function(){}); }catch(_e){}
+      loginFail = 0;
       enterDashboard(me);
     }catch(e){
       console.error('[LOGIN] 실패:', e);
       setMsg(loginMsg, translateError(e), 'error');
+      loginFail++;
+      if(loginFail >= 3){ setMsg(loginMsg, '🤔 로그인이 3회 연속 실패했습니다.\n혹시 한/영 키 또는 Caps Lock이 켜져 있나요?\n아래 "❓ 로그인이 안 되시나요?" 링크를 확인해보세요.', 'error'); }
     }finally{ busy(false); }
   }
 
@@ -1586,8 +1626,8 @@ updateTeamBtn();
     var phone = normalizePhone(sPhone.value);
     var team = sTeam.value;
     var referrer = (sRef.value||'').trim();
-    var pw = (sPw.value||'').trim();
-    var pw2 = (sPw2.value||'').trim();
+    var pw = (window.koToEng ? window.koToEng(sPw.value||'') : (sPw.value||'')).trim();   /* v35: 한글→영문 변환 */
+    var pw2 = (window.koToEng ? window.koToEng(sPw2.value||'') : (sPw2.value||'')).trim();
     if(hasKorean(pw) || hasKorean(pw2)) return setMsg(signupMsg,'비밀번호에 한글이 포함되어 있습니다.\n한/영 키를 영문으로 바꿔 다시 입력해주세요.','error');
     if(!name) return setMsg(signupMsg,'이름을 입력해주세요.','error');
     if(name.length>30) return setMsg(signupMsg,'이름이 너무 깁니다.','error');
@@ -1674,6 +1714,7 @@ updateTeamBtn();
   fPhone.addEventListener('keydown',  function(e){ if(e.key==='Enter') doForgot(); });
   document.getElementById('link-to-signup').addEventListener('click', showSignup);
   document.getElementById('link-to-forgot').addEventListener('click', showForgot);
+  var lh=document.getElementById('link-login-help'); if(lh) lh.addEventListener('click', showLoginHelp);
   document.getElementById('link-signup-to-login').addEventListener('click', showLogin);
   document.getElementById('link-forgot-to-login').addEventListener('click', showLogin);
   logoutBtn.addEventListener('click', async function(){
@@ -1701,12 +1742,12 @@ updateTeamBtn();
 <!-- ===== [v17 / B-2 보강] v35 입력 동작 이식: 전화번호 자동 하이픈(11자리 제한) + 비밀번호 눈 표시 ===== -->
 <script id="auth-input-enhance">
 (function(){
-  /* v35 그대로: 전화번호 자동 하이픈 + 11자리(010+8) 초과 입력 차단 */
+  /* v35 그대로: 전화번호 자동 하이픈 + 11자리(010+8) 초과 차단 */
   function autoHyphen(input){
     var ie = window.event || {};
     var isDelete = (ie.inputType==='deleteContentBackward'||ie.inputType==='deleteContentForward'||ie.inputType==='deleteByCut');
     var digits = input.value.replace(/[^0-9]/g,'');
-    if(digits.length>11) digits = digits.slice(0,11);     // ★ 11자리 초과 차단
+    if(digits.length>11) digits = digits.slice(0,11);
     var f='';
     if(digits.length===0) f='';
     else if(digits.length<3) f=digits;
@@ -1722,33 +1763,70 @@ updateTeamBtn();
     if(el && !el.__hyphen){ el.addEventListener('input', function(){ autoHyphen(this); }); el.__hyphen=true; }
   });
 
-  /* v35 그대로: 비밀번호 보기(눈) 토글 — 클릭할 때만 type 전환(IME 충돌 없음) */
-  function addEye(id){
-    var input=document.getElementById(id);
-    if(!input) return;
-    if(input.parentElement && input.parentElement.classList.contains('pw-wrap')) return;
-    var cs=getComputedStyle(input);
-    var wrap=document.createElement('div');
-    wrap.className='pw-wrap';
-    wrap.style.cssText='position:relative;width:100%';
-    wrap.style.marginBottom=cs.marginBottom;        // 입력칸 아래 여백을 래퍼로 이전(눈 수직중앙 정렬)
-    input.parentNode.insertBefore(wrap,input);
-    wrap.appendChild(input);
-    input.style.marginBottom='0';
-    input.style.paddingRight='44px';                // 눈 버튼 자리 확보
-    var eye=document.createElement('button');
-    eye.type='button'; eye.className='pw-eye';
-    eye.setAttribute('aria-label','비밀번호 표시/숨기기'); eye.setAttribute('tabindex','-1');
-    eye.innerHTML='<i class="fa-solid fa-eye"></i>';
-    eye.style.cssText='position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#94a3b8;font-size:15px;padding:8px;line-height:1';
-    wrap.appendChild(eye);
-    eye.addEventListener('mousedown', function(e){ e.preventDefault(); });   // 포커스 유지
-    eye.addEventListener('click', function(){
-      if(input.type==='password'){ input.type='text';  eye.innerHTML='<i class="fa-solid fa-eye-slash"></i>'; eye.style.color='#2563eb'; }
-      else                       { input.type='password'; eye.innerHTML='<i class="fa-solid fa-eye"></i>';       eye.style.color='#94a3b8'; }
-    });
+  /* v35.2.82 그대로: 한글로 잘못 친 비밀번호 → 영문(두벌식 QWERTY)으로 환원 */
+  function koToEng(str){
+    if(!str) return str;
+    var CHO=['r','R','s','e','E','f','a','q','Q','t','T','d','w','W','c','z','x','v','g'];
+    var JUNG=['k','o','i','O','j','p','u','P','h','hk','ho','hl','y','n','nj','np','nl','b','m','ml','l'];
+    var JONG=['','r','R','rt','s','sw','sg','e','f','fr','fa','fq','ft','fx','fv','fg','a','q','qt','t','T','d','w','c','z','x','v','g'];
+    var COMPAT=['r','R','rt','s','sw','sg','e','E','f','fr','fa','fq','ft','fx','fv','fg','a','q','Q','qt','t','T','d','w','W','c','z','x','v','g','k','o','i','O','j','p','u','P','h','hk','ho','hl','y','n','nj','np','nl','b','m','ml','l'];
+    var out='';
+    for(var i=0;i<str.length;i++){
+      var code=str.charCodeAt(i);
+      if(code>=0xAC00 && code<=0xD7A3){
+        var x=code-0xAC00;
+        out += CHO[Math.floor(x/588)] + JUNG[Math.floor((x%588)/28)] + JONG[x%28];
+      } else if(code>=0x3131 && code<=0x3163){
+        out += COMPAT[code-0x3131];
+      } else { out += str[i]; }
+    }
+    return out;
   }
-  ['login-pw','signup-pw','signup-pw2'].forEach(addEye);
+  window.koToEng = koToEng;
+
+  /* v35 그대로: 비밀번호 헬퍼 — 눈 토글 + Caps Lock 경고 + 한글 자동변환(IME 안전) */
+  function attachPasswordHelpers(inputId, warnId){
+    var input = document.getElementById(inputId);
+    var warn  = document.getElementById(warnId);
+    if(!input) return;
+    if(input.parentElement && !input.parentElement.classList.contains('pw-wrap')){
+      var cs = getComputedStyle(input);
+      var wrap = document.createElement('div');
+      wrap.className='pw-wrap'; wrap.style.cssText='position:relative;width:100%';
+      wrap.style.marginBottom = cs.marginBottom;
+      input.parentNode.insertBefore(wrap, input);
+      wrap.appendChild(input);
+      input.style.marginBottom='0'; input.style.paddingRight='44px';
+      var eye=document.createElement('button');
+      eye.type='button'; eye.className='pw-eye';
+      eye.setAttribute('aria-label','비밀번호 표시/숨기기'); eye.setAttribute('tabindex','-1');
+      eye.innerHTML='<i class="fa-solid fa-eye"></i>';
+      eye.style.cssText='position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#94a3b8;font-size:15px;padding:8px;line-height:1';
+      wrap.appendChild(eye);
+      eye.addEventListener('mousedown', function(e){ e.preventDefault(); });
+      eye.addEventListener('click', function(){
+        if(input.type==='password'){ input.type='text'; eye.innerHTML='<i class="fa-solid fa-eye-slash"></i>'; eye.style.color='#2563eb'; }
+        else { input.type='password'; eye.innerHTML='<i class="fa-solid fa-eye"></i>'; eye.style.color='#94a3b8'; }
+      });
+    }
+    // Caps Lock 경고
+    if(warn){
+      function caps(e){ return (typeof e.getModifierState==='function') && e.getModifierState('CapsLock'); }
+      function upd(on){ if(on){ warn.textContent='⚠️ Caps Lock 켜져 있음 (대문자 입력 중)'; warn.style.display='block'; } else { warn.style.display='none'; warn.textContent=''; } }
+      input.addEventListener('keydown', function(e){ upd(caps(e)); });
+      input.addEventListener('keyup',   function(e){ upd(caps(e)); });
+    }
+    // 한글 자동변환 (조합 안전 시점에만)
+    var composing=false;
+    function conv(){ var b=input.value, a=koToEng(b); if(a!==b){ var p=a.length; input.value=a; try{ input.setSelectionRange(p,p); }catch(_e){} } }
+    input.addEventListener('compositionstart', function(){ composing=true; });
+    input.addEventListener('compositionend',   function(){ composing=false; setTimeout(function(){ if(!composing) conv(); },0); });
+    input.addEventListener('paste', function(){ setTimeout(function(){ if(!composing) conv(); },0); });
+    input.addEventListener('blur',  function(){ composing=false; conv(); });
+  }
+  attachPasswordHelpers('login-pw','login-pw-warn');
+  attachPasswordHelpers('signup-pw','signup-pw-warn');
+  attachPasswordHelpers('signup-pw2','signup-pw2-warn');
 })();
 </script>
 
