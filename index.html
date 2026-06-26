@@ -1422,9 +1422,30 @@ updateTeamBtn();
     console.log('%c[LOGIN] 성공','color:#0f9d6b;font-weight:bold',
       {name:me.name, team:me.team, role:me.role, status:me.status});
     window.currentUser = me;
+
+    /* [v15 / 2-4a] 실제 로그인 권한을 대시보드에 반영 (데모 셀렉트 대체) */
+    try{
+      var roleMap = {system_admin:'system_admin', branch_manager:'BM', team_manager:'SM', member:'member'};
+      var teamMap = {'1팀':'t1','2팀':'t2','3팀':'t3','4팀':'t4'};
+      var vRole = roleMap[me.role] || 'member';
+      var vTeam = teamMap[me.team] || 't1';   // '전체' 등은 t1 기본 (BM·관리자는 전팀 권한이라 무관)
+      if(window.DATA){
+        window.DATA.role = vRole;
+        window.DATA.curUserTeam = vTeam;
+        // 데모 직급 셀렉트 → 실제 권한으로 동기화 후 숨김 (임의 권한 변경 차단)
+        var sel = document.getElementById('roleDemo');
+        if(sel){ sel.value = vRole; var box = sel.closest('.demo-role'); if(box) box.style.display = 'none'; }
+        try{ window.chartSel = [vTeam]; }catch(_e){}
+        if(typeof window.renderAll === 'function') window.renderAll();
+        if(typeof window.updateTeamBtn === 'function') window.updateTeamBtn();
+      }
+    }catch(e){ console.warn('[2-4a] 권한 반영 경고:', e && e.message); }
+
+    // 상단 표시는 실제 사용자로 (renderAll 이후 다시 세팅)
     var who = document.getElementById('whoName'); if(who) who.textContent = me.name || '';
     var roleKor = {system_admin:'시스템관리자', branch_manager:'BM(지점장)', team_manager:'SM', member:'팀원'};
-    var wr = document.getElementById('whoRole'); if(wr) wr.textContent = (roleKor[me.role]||me.role) + ' 권한 접속중';
+    var teamKor = (me.team && me.team !== '전체') ? ' · ' + me.team : '';
+    var wr = document.getElementById('whoRole'); if(wr) wr.textContent = (roleKor[me.role]||me.role) + teamKor + ' 권한 접속중';
     hideGate();
   }
 
