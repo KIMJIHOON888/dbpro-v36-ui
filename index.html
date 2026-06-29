@@ -1944,7 +1944,9 @@ updateTeamBtn();
       var g=await sb.from('monthly_goals').select('member_name,year,month,amount');
       if(g.error){ console.warn('[2-4c레이스] monthly_goals 로드 실패:', g.error.message); _goalCache={}; return; }
       _goalCache={};
+      window.__goalCacheRaw = {};   /* [v23] member별 원본 목표(목표모달 기존값 표시) */
       (g.data||[]).forEach(function(r){
+        window.__goalCacheRaw[r.member_name+'_'+r.year+'_'+r.month]=parseInt(r.amount,10)||0;
         var tk=_memberTeam[r.member_name]; if(!tk) return;
         var k=tk+'_'+r.year+'_'+r.month;
         _goalCache[k]=(_goalCache[k]||0)+ (parseInt(r.amount,10)||0);
@@ -2056,6 +2058,12 @@ updateTeamBtn();
   }
 
   /* 재집계 + 재렌더 + 보정 (연/월 변경, 캐시 재사용 = db_records 재요청 없음) */
+  /* [v23] 목표 저장 후: 목표 캐시 재로딩 → 재집계/재렌더 */
+  window.reloadGoalsAndApply = async function(){
+    try{ _memberTeam=null; await loadGoalCache(); }catch(e){ console.warn('[목표] 재로딩 경고:', e&&e.message); }
+    if(typeof window.applyStats==='function') window.applyStats();
+  };
+
   window.applyStats = function(){
     if(!window.__dbRecords) return;
     var s=getSel();
@@ -2080,18 +2088,42 @@ updateTeamBtn();
   window.loadStats = async function(){
     if(!sb){ console.warn('[2-4c] sbClient 없음'); return; }
     try{
-      if(!window.__dbRecords){
-        var all=[], from=0, size=1000;
+      if(!window.__dbRecords || window.__dbRecords.length===0){   /* [v22] 빈 캐시면 재시도 허용 */
+        var all=[], from=0, size=1000, hadError=false;
         while(true){
           var r=await sb.from('db_records').select('*').range(from, from+size-1);
-          if(r.error){ console.warn('[2-4c] db_records 조회 실패:', r.error.message); break; }
+          if(r.error){ hadError=true; console.error('[2-4c] ⚠ db_records 조회 실패:', r.error.message, '— RLS 권한 또는 세션 문제일 수 있습니다.'); break; }
           all=all.concat(r.data||[]);
           if(!r.data || r.data.length<size) break;
           from+=size;
         }
-        window.__dbRecords=all;   /* 읽기 전용 캐시 (원본 보존, 쓰기 없음) */
-        console.log('[2-4c] db_records 로드:', all.length, '건 (읽기 전용)');
+        if(all.length===0){
+          /* [v22] 빈 배열은 캐시하지 않음 → 다음 호출/새로고침 때 다시 시도 */
+          if(hadError) console.error('[2-4c] ⚠ db_records 0건(에러). 데이터 미반영 — 로그인 세션/RLS 확인 필요.');
+          else console.warn('[2-4c] ⚠ db_records 0건(에러 없음). 테이블이 비었거나 RLS로 필터됨. 캐시 보류 후 재시도합니다.');
+          window.__dbRecords=null;   /* 캐시 보류 */
+        } else {
+          window.__dbRecords=all;
+          console.log('[2-4c] db_records 로드:', all.length, '건 (읽기 전용)');
+        }
       }
+      if(!window.__dbRecords){
+        console.warn('[2-4c] db_records 미확보 → 통계 0 표시 후 3초 뒤 재시도합니다.');
+        /* 더미값이 실데이터처럼 보이지 않도록 0으로 비움 */
+        try{
+          DATA.inflow = ['회사 DB','개인 DB','기타 DB','재배정 DB'].map(function(sname){
+            return {src:sname, assigned:0, mt:0, ct:0, rev:0, danger:(sname==='재배정 DB')};
+          });
+          if(typeof window.renderInflow==='function') window.renderInflow();
+          /* KPI 카드도 더미 대신 0으로 (데이터 로드 전까지) */
+          if(typeof window.renderKPI==='function') window.renderKPI();
+          if(typeof patchKPICards==='function') patchKPICards({grossRevenue:0,contractCount:0,lapseCount:0,lapseAmount:0,isAll:getSel().isAll});
+        }catch(e){}
+        /* 일시적 세션/네트워크 문제 대비 1회 자동 재시도 */
+        if(!window.__statsRetried){ window.__statsRetried=true; setTimeout(function(){ window.loadStats(); }, 3000); }
+        return;
+      }
+      window.__statsRetried=false;
       await loadGoalCache();   /* [A] monthly_goals → 팀목표 캐시 (세션 권한 내) */
       window.applyStats();
       var st=window.STATS;
@@ -2102,6 +2134,309 @@ updateTeamBtn();
 })();
 </script>
 
+<!-- ===== [v24] 가입 승인 UI (v35 approveUser/rejectUser 100% 이식 / SM=자기팀, BM·관리자=전팀) ===== -->
+<style id="approve-css">
+#approveBtn{position:relative;}
+#approveBtn .ap-badge{position:absolute;top:-6px;right:-6px;background:#ef4444;color:#fff;font-size:10px;font-weight:800;min-width:17px;height:17px;line-height:17px;text-align:center;border-radius:9px;padding:0 4px;}
+.ap-row{border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:10px;background:var(--surface);}
+.ap-row .ap-name{font-weight:800;font-size:14px;}
+.ap-row .ap-meta{font-size:12px;color:var(--muted);margin-top:2px;}
+.ap-ctl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--surface-2);padding:8px 10px;border-radius:8px;margin-top:10px;font-size:12px;}
+.ap-ctl select{padding:5px 8px;font-size:12px;border:1px solid var(--line);border-radius:6px;flex:1;min-width:110px;background:var(--surface);color:var(--ink);}
+.ap-ctl label{display:flex;align-items:center;gap:5px;background:#fef3c7;color:#92400e;padding:5px 8px;border-radius:6px;cursor:pointer;font-weight:700;}
+.ap-act{display:flex;gap:8px;justify-content:flex-end;margin-top:10px;}
+.ap-act .btn{flex:none;padding:7px 16px;}
+</style>
+<script id="approve-ui">
+(function(){
+  var sb=window.sbClient;
+  function ready(fn){ if(document.readyState!=='loading') fn(); else document.addEventListener('DOMContentLoaded',fn); }
+
+  /* 승인 권한 보유 역할: 시스템관리자 / BM / SM */
+  function canApprove(){ var r=(window.DATA&&DATA.role)||''; return ['system_admin','BM','SM','branch_manager','team_manager'].indexOf(r)>=0; }
+  /* 내 역할 정규화 (v36 토큰 ↔ v35 DB role 혼용 대비) */
+  function myRole(){ return (window.DATA&&DATA.role)||''; }
+  function isSM(){ return myRole()==='SM'||myRole()==='team_manager'; }
+  function myTeamName(){
+    /* v36 curUserTeam(t1~t4) → '3팀' 형태로. currentUser.team 우선 */
+    try{
+      if(window.currentUser && window.currentUser.team) return window.currentUser.team;
+      var map={t1:'1팀',t2:'2팀',t3:'3팀',t4:'4팀'};
+      return map[(window.DATA&&DATA.curUserTeam)]||'';
+    }catch(e){ return ''; }
+  }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c];}); }
+  function fmtPhone(p){ p=String(p||'').replace(/[^0-9]/g,''); if(p.length===11)return p.replace(/(\d{3})(\d{4})(\d{4})/,'$1-$2-$3'); if(p.length===10)return p.replace(/(\d{3})(\d{3})(\d{4})/,'$1-$2-$3'); return p||'-'; }
+  function todayKST(){ var d=new Date(Date.now()+9*3600*1000); return d.toISOString().slice(0,10); }
+
+  /* 승인 대기 목록 로드 (SM=자기팀, BM·관리자=전팀) */
+  window.loadPending = async function(){
+    if(!sb) return [];
+    try{
+      var q=sb.from('app_users').select('id,name,phone,team,role,status,referrer,joined_at').eq('status','pending');
+      if(isSM()){ var t=myTeamName(); if(t) q=q.eq('team', t); }   /* SM은 자기 팀만 */
+      var r=await q;
+      if(r.error){ console.warn('[승인] 대기목록 조회 실패:', r.error.message); return []; }
+      return r.data||[];
+    }catch(e){ console.warn('[승인] loadPending 경고:', e&&e.message); return []; }
+  };
+
+  /* 헤더 배지 갱신 */
+  window.refreshPendingBadge = async function(){
+    if(!canApprove()){ var b=document.getElementById('approveBtn'); if(b) b.style.display='none'; return; }
+    var list=await loadPending();
+    var btn=document.getElementById('approveBtn'); if(!btn) return;
+    btn.style.display='';
+    var badge=btn.querySelector('.ap-badge');
+    if(list.length>0){ if(!badge){ badge=document.createElement('span'); badge.className='ap-badge'; btn.appendChild(badge);} badge.textContent=list.length; }
+    else if(badge){ badge.remove(); }
+  };
+
+  /* 승인 모달 */
+  window.openApproveModal = async function(){
+    if(!canApprove()){ if(typeof modal==='function')modal('<div style="text-align:center;"><h3 style="justify-content:center;">권한 없음</h3><p style="color:var(--ink2);">가입 승인은 시스템관리자·BM·SM만 가능합니다.</p><button class="btn" style="width:100%;" onclick="closeModal()">확인</button></div>'); return; }
+    var list=await loadPending();
+    var scope=isSM()?('내 팀('+myTeamName()+')'):'전체 팀';
+    var rows=list.map(function(u){
+      var roleOpts=[{v:'member',l:'팀장'},{v:'team_manager',l:'SM'},{v:'branch_manager',l:'BM'}]
+        .map(function(o){return '<option value="'+o.v+'"'+(u.role===o.v?' selected':'')+'>'+o.l+'</option>';}).join('');
+      return '<div class="ap-row" data-uid="'+u.id+'">'
+        +'<div class="ap-name">'+esc(u.name)+'</div>'
+        +'<div class="ap-meta">📞 '+fmtPhone(u.phone)+' · '+esc(u.team||'팀 미지정')+(u.referrer?(' · 도입자 '+esc(u.referrer)):'')+'</div>'
+        +'<div class="ap-ctl"><span style="color:var(--muted);font-weight:700;">권한</span>'
+          +'<select id="ap-role-'+u.id+'">'+roleOpts+'</select>'
+          +'<label><input type="checkbox" id="ap-new-'+u.id+'"> 신입 뱃지</label></div>'
+        +'<div class="ap-act">'
+          +'<button class="btn ghost" style="background:#dc2626;color:#fff;border:none;" onclick="rejectUser(\''+u.id+'\')">❌ 입사 취소</button>'
+          +'<button class="btn" onclick="approveUser(\''+u.id+'\')">✅ 승인</button>'
+        +'</div></div>';
+    }).join('');
+    if(!list.length) rows='<div style="text-align:center;color:var(--muted);padding:30px 0;"><div style="font-size:32px;">📭</div>승인 대기 중인 가입 신청이 없습니다.</div>';
+    modal('<h3><i class="fa-solid fa-user-clock" style="color:var(--t1)"></i> 가입 승인 대기 <span style="font-size:12px;color:var(--muted);font-weight:600;">('+scope+')</span></h3>'
+      +'<div style="max-height:60vh;overflow:auto;margin-top:8px;">'+rows+'</div>'
+      +'<button class="btn" style="width:100%;margin-top:12px;" onclick="closeModal()">닫기</button>');
+  };
+
+  /* 승인 (v35 approveUser 이식): status=approved + role + 신입시 is_new/joined_at */
+  window.approveUser = async function(uid){
+    var roleSel=document.getElementById('ap-role-'+uid);
+    var role=roleSel?roleSel.value:'member';
+    var isNew=!!(document.getElementById('ap-new-'+uid)&&document.getElementById('ap-new-'+uid).checked);
+    try{
+      var updates={status:'approved', role:role};
+      if(isNew){ updates.is_new=true; updates.joined_at=todayKST(); }
+      var r=await sb.from('app_users').update(updates).eq('id', uid);
+      if(r.error) throw r.error;
+      apToast('승인 완료'+(isNew?' (신입 등록)':'')+' · 권한: '+({member:'팀장',team_manager:'SM',branch_manager:'BM'}[role]||role));
+      await afterApprovalChange();
+    }catch(e){ apToast('승인 실패: '+(e&&e.message||e), true); }
+  };
+
+  /* 거절 (v35 rejectUser 이식): status=rejected */
+  window.rejectUser = async function(uid){
+    apConfirm('이 가입 신청을 입사 취소(거부)하시겠습니까?', async function(){
+      try{
+        var r=await sb.from('app_users').update({status:'rejected'}).eq('id', uid);
+        if(r.error) throw r.error;
+        apToast('입사 취소 처리됨');
+        await afterApprovalChange();
+      }catch(e){ apToast('처리 실패: '+(e&&e.message||e), true); }
+    });
+  };
+
+  /* 승인/거절 후: 모달 목록 + 배지 + 인원현황(loadPeople) 갱신 */
+  async function afterApprovalChange(){
+    await refreshPendingBadge();
+    try{ if(typeof loadPeople==='function') await loadPeople(); }catch(e){}
+    /* 모달이 열려있으면 목록 새로고침 */
+    if(document.getElementById('modalMask') && document.getElementById('modalMask').classList.contains('show')){
+      openApproveModal();
+    }
+  }
+
+  function apToast(msg,isErr){
+    var t=document.createElement('div'); t.textContent=msg;
+    t.style.cssText='position:fixed;left:50%;bottom:40px;transform:translateX(-50%);z-index:99999;background:'+(isErr?'#dc2626':'#0f172a')+';color:#fff;padding:12px 20px;border-radius:10px;font-size:13px;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,.25);max-width:90vw;';
+    document.body.appendChild(t); setTimeout(function(){t.style.transition='opacity .4s';t.style.opacity='0';setTimeout(function(){t.remove();},400);},2600);
+  }
+  function apConfirm(msg,onYes){
+    if(typeof modal!=='function'){ if(confirm(msg)) onYes(); return; }
+    window.__apYes=onYes;
+    modal('<div style="text-align:center;"><div style="font-size:32px;">⚠️</div><h3 style="justify-content:center;">확인</h3><p style="color:var(--ink2);">'+esc(msg)+'</p>'
+      +'<div style="display:flex;gap:8px;margin-top:6px;"><button class="btn ghost" style="flex:1;" onclick="closeModal()">취소</button>'
+      +'<button class="btn" style="flex:1;background:#dc2626;" onclick="(window.__apYes&&window.__apYes());">확인</button></div></div>');
+  }
+
+  /* 헤더에 '가입 승인' 버튼 사후 주입 (원본 헤더 마크업 불변) */
+  function mountApproveBtn(){
+    try{
+      if(document.getElementById('approveBtn')) return;
+      var gear=document.querySelector('header .btn-h[onclick*="openSettings"]');
+      var host=gear?gear.parentElement:document.querySelector('header .between, header');
+      if(!host) return;
+      var b=document.createElement('button');
+      b.className='btn-h'; b.id='approveBtn'; b.style.display='none';
+      b.innerHTML='<i class="fa-solid fa-user-check"></i> 가입 승인';
+      b.setAttribute('onclick','openApproveModal()');
+      if(gear) host.insertBefore(b, gear); else host.appendChild(b);
+    }catch(e){ console.warn('[승인] 버튼 주입 경고:', e&&e.message); }
+  }
+
+  ready(function(){
+    mountApproveBtn();
+    /* 로그인(enterDashboard) 후 배지 갱신: loadStats 처럼 enterDashboard 끝에서 트리거되도록 폴링 1회 */
+    var tries=0; var iv=setInterval(function(){
+      tries++;
+      if(window.DATA && window.DATA.role){ refreshPendingBadge(); }
+      if(tries>20) clearInterval(iv);
+    }, 500);
+  });
+})();
+</script>
+<!-- ===== [v23] 월 목표 입력 UI (v35 showGoalModal/submitGoal 이식, monthly_goals upsert) ===== -->
+<script id="goal-input">
+(function(){
+  var sb = window.sbClient;
+
+  function curUser(){
+    try{
+      if(window.currentUser && window.currentUser.name) return window.currentUser;
+      if(window.ROLE_PRESET && window.DATA && ROLE_PRESET[DATA.role]) return {name:ROLE_PRESET[DATA.role].name, role:DATA.role};
+    }catch(e){}
+    return null;
+  }
+  function won(v){ return (v||0).toLocaleString('ko-KR'); }
+
+  /* db_records에서 내 월매출 계산(참고치, v35 calcMonthlyRevenue 동등) */
+  function myMonthlyRev(name, yr, mn){
+    var recs=window.__dbRecords||[]; var sum=0;
+    recs.forEach(function(d){
+      if(d.member!==name) return;
+      var st=String(d.status||'').trim(); if(st!=='계약'&&st!=='청철/실효') return;
+      var cs=(Array.isArray(d.contracts)&&d.contracts.length?d.contracts:((d.raw&&d.raw.contracts)||[]));
+      cs.forEach(function(c){
+        if(c.isLapsed) return;
+        var p=(String(c.date||d.date||'').match(/(\d{4})[.\-\/]\s?(\d{1,2})/));
+        if(!p||+p[1]!==yr||+p[2]!==mn) return;
+        sum+=parseInt(c.totalAmount||c.amount||0,10)||0;
+      });
+    });
+    return sum;
+  }
+
+  /* [v23] '내 목표 설정' 버튼을 레이스 타이틀에 사후 주입(원본 마크업 불변) */
+  function mountGoalBtn(){
+    try{
+      var sec=document.querySelector('section[data-sec="race"] .card-title');
+      if(!sec || document.getElementById('myGoalBtn')) return;
+      var b=document.createElement('button');
+      b.className='btn-h sm'; b.id='myGoalBtn'; b.style.marginLeft='auto';
+      b.innerHTML='<i class="fa-solid fa-bullseye"></i> 내 목표 설정';
+      b.setAttribute('onclick','openGoalModal()');
+      sec.appendChild(b);
+    }catch(e){}
+  }
+  if(document.readyState!=='loading') mountGoalBtn(); else document.addEventListener('DOMContentLoaded', mountGoalBtn);
+
+  window.openGoalModal = function(){
+    var me=curUser();
+    if(!me||!me.name){ if(typeof modal==='function')modal('<div style="text-align:center;"><h3 style="justify-content:center;">로그인이 필요합니다</h3><button class="btn" style="width:100%;margin-top:10px;" onclick="closeModal()">확인</button></div>'); return; }
+    var now=new Date(), y=now.getFullYear(), m=now.getMonth()+1;
+    var lastM=m===1?12:m-1, lastY=m===1?y-1:y;
+    var lastRev=myMonthlyRev(me.name,lastY,lastM);
+    var tot=0,cnt=0; for(var mi=1;mi<m;mi++){ var r=myMonthlyRev(me.name,y,mi); if(r>0){tot+=r;cnt++;} }
+    var avg=cnt>0?Math.round(tot/cnt):0;
+    /* 이미 이번달 목표가 있으면 표시(v35 정책: 그달은 수정불가지만 v36은 일단 보여주고 안내) */
+    var existing=0;
+    try{ if(window.__goalCacheRaw) existing=window.__goalCacheRaw[me.name+'_'+y+'_'+m]||0; }catch(e){}
+    modal('<h3><i class="fa-solid fa-bullseye" style="color:var(--t1)"></i> '+y+'년 '+m+'월 목표 선언</h3>'
+      +'<div style="font-size:12px;color:var(--muted);margin-bottom:14px;">실현 가능한 수치로 신중히 설정해 주세요. 목표는 그 달의 기준이 됩니다.</div>'
+      +'<div style="display:flex;gap:8px;margin-bottom:14px;">'
+        +'<div style="flex:1;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:10px;text-align:center;"><div style="font-size:11px;color:var(--muted);">전월 매출</div><div style="font-weight:800;font-size:14px;">'+won(lastRev)+'원</div></div>'
+        +'<div style="flex:1;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:10px;text-align:center;"><div style="font-size:11px;color:var(--muted);">올해 월평균</div><div style="font-weight:800;font-size:14px;">'+won(avg)+'원</div></div>'
+      +'</div>'
+      +(existing>0?'<div style="background:#fef3c7;border:1.5px solid #fbbf24;border-radius:8px;padding:8px 10px;margin-bottom:10px;font-size:12px;color:#92400e;">이번 달 목표가 이미 설정되어 있습니다: <b>'+won(existing)+'원</b></div>':'')
+      +'<div class="field"><label>이번 달 목표액 (원)</label>'
+      +'<input class="inp" id="goalAmountInput" inputmode="numeric" placeholder="예: 5,000,000" oninput="goalFmt(this)"></div>'
+      +'<div style="display:flex;gap:8px;margin-top:14px;">'
+        +'<button class="btn ghost" style="flex:1;" onclick="closeModal()">취소</button>'
+        +'<button class="btn" style="flex:2;" id="goalSaveBtn" onclick="submitGoalV36()"><i class="fa-solid fa-check"></i> 목표 설정</button>'
+      +'</div>');
+    setTimeout(function(){ var i=document.getElementById('goalAmountInput'); if(i)i.focus(); },80);
+  };
+
+  /* 천단위 콤마 입력 포맷 */
+  window.goalFmt=function(inp){
+    var v=(inp.value||'').replace(/[^0-9]/g,'');
+    inp.value = v? parseInt(v,10).toLocaleString('ko-KR') : '';
+  };
+
+  /* 저장: monthly_goals upsert (v35 submitGoal 이식) → 재집계 */
+  window.submitGoalV36 = async function(){
+    var inp=document.getElementById('goalAmountInput');
+    var amount=parseInt((inp&&inp.value||'').replace(/[^0-9]/g,''),10)||0;
+    if(amount<100000){ alert('최소 10만원 이상 입력해주세요.'); return; }
+    var me=curUser(); if(!me||!me.name){ alert('로그인 정보가 확인되지 않습니다.'); return; }
+    var now=new Date(), y=now.getFullYear(), m=now.getMonth()+1;
+    var btn=document.getElementById('goalSaveBtn'); if(btn){ btn.disabled=true; btn.innerHTML='저장 중...'; }
+    var ok=false, errMsg='';
+    try{
+      if(sb){
+        var r=await sb.from('monthly_goals').upsert(
+          [{member_name:me.name, year:y, month:m, amount:amount}],
+          {onConflict:'member_name,year,month'}
+        );
+        if(r.error){ errMsg=r.error.message; console.error('[목표저장] 실패:', errMsg); }
+        else ok=true;
+      } else { errMsg='Supabase 미연결'; }
+    }catch(e){ errMsg=(e&&e.message)||String(e); console.error('[목표저장] 예외:', errMsg); }
+
+    if(typeof closeModal==='function') closeModal();
+    if(ok){
+      /* 목표 캐시 갱신 후 레이스/차트 재집계 — loadGoalCache 재호출 */
+      try{
+        if(typeof window.reloadGoalsAndApply==='function'){ await window.reloadGoalsAndApply(); }
+        else if(typeof window.applyStats==='function'){ window.applyStats(); }
+      }catch(e){}
+      toast('🔥 '+amount.toLocaleString('ko-KR')+'원 목표 설정 완료! 전 PC에 동일하게 반영됩니다.');
+    } else {
+      toast('목표 저장 실패: '+errMsg+' (RLS 권한/세션 확인)', true);
+    }
+  };
+
+  function toast(msg, isErr){
+    var t=document.createElement('div');
+    t.textContent=msg;
+    t.style.cssText='position:fixed;left:50%;bottom:40px;transform:translateX(-50%);z-index:99999;'
+      +'background:'+(isErr?'#dc2626':'#0f172a')+';color:#fff;padding:12px 20px;border-radius:10px;'
+      +'font-size:13px;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,.25);max-width:90vw;';
+    document.body.appendChild(t);
+    setTimeout(function(){ t.style.transition='opacity .4s'; t.style.opacity='0'; setTimeout(function(){t.remove();},400); }, 3000);
+  }
+})();
+</script>
+<!-- ===== [v22] 회귀 복구: NaN% 방어 + db_records 빈로드 방지·재시도 ===== -->
+<script id="regression-fix">
+(function(){
+  function ready(fn){ if(document.readyState!=='loading') fn(); else document.addEventListener('DOMContentLoaded',fn); }
+  ready(function(){
+    /* (1) renderInflow 래핑: 렌더 후 표의 'NaN%'를 '0.0%'로 정리 (분모 0 방어) */
+    if(typeof window.renderInflow==='function'){
+      var _ri=window.renderInflow;
+      window.renderInflow=function(){
+        var r=_ri.apply(this,arguments);
+        try{
+          var box=document.getElementById('inflowBody');
+          if(box){ box.querySelectorAll('td').forEach(function(td){
+            if(/NaN/.test(td.textContent)) td.textContent='0.0%';
+          }); }
+        }catch(e){}
+        return r;
+      };
+    }
+  });
+})();
+</script>
 <!-- ===== [v20] 게시판 본인글 수정·삭제 (순수 additive / 원본 함수 래핑·사후 보정, 원본 줄 불변) ===== -->
 <style id="board-mine-css">
 .b-edit{cursor:pointer;color:var(--muted);font-size:12px;opacity:.6;flex:none;margin-left:6px;transition:.15s;}
