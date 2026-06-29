@@ -1946,7 +1946,15 @@ updateTeamBtn();
         var k=tk+'_'+r.year+'_'+r.month;
         _goalCache[k]=(_goalCache[k]||0)+ (parseInt(r.amount,10)||0);
       });
-      console.log('[2-4c레이스] monthly_goals', (g.data||[]).length, '건 → 팀목표 캐시');
+      var keys=Object.keys(_goalCache);
+      console.log('[2-4c레이스] monthly_goals 원본', (g.data||[]).length, '건 / app_users 매핑', Object.keys(_memberTeam).length, '명 / 팀목표 캐시', keys.length, '키');
+      if((g.data||[]).length>0 && keys.length===0){
+        console.warn('[2-4c레이스] ⚠ 목표 데이터는 있으나 팀 매핑 실패 — member_name이 app_users.name과 불일치하거나 team이 비어있음. 샘플:', (g.data||[])[0]);
+      } else if((g.data||[]).length===0){
+        console.warn('[2-4c레이스] ⚠ monthly_goals가 비어있음(또는 RLS로 안 읽힘) — 목표 미설정으로 표시됩니다.');
+      } else {
+        console.log('[2-4c레이스] 팀목표 키 샘플:', keys.slice(0,6));
+      }
     }catch(e){ console.warn('[2-4c레이스] 목표 로드 경고:', e&&e.message); _goalCache={}; }
   }
   /* 팀 tk의 year/month 목표(만원). 데이터 없으면 0 */
@@ -2068,6 +2076,175 @@ updateTeamBtn();
   };
 })();
 </script>
+
+<!-- ===== [v20] 게시판 본인글 수정·삭제 (순수 additive / 원본 함수 래핑·사후 보정, 원본 줄 불변) ===== -->
+<style id="board-mine-css">
+.b-edit{cursor:pointer;color:var(--muted);font-size:12px;opacity:.6;flex:none;margin-left:6px;transition:.15s;}
+.b-edit:hover{color:var(--navy);opacity:1;}
+</style>
+<script id="board-mine">
+(function(){
+  function ready(fn){ if(document.readyState!=='loading') fn(); else document.addEventListener('DOMContentLoaded',fn); }
+
+  /* 현재 로그인 사용자 이름 (실로그인 우선 → 데모 프리셋) */
+  window.currentUserName = function(){
+    try{
+      if(window.currentUser && window.currentUser.name) return window.currentUser.name;
+      if(window.ROLE_PRESET && window.DATA && ROLE_PRESET[DATA.role]) return ROLE_PRESET[DATA.role].name;
+    }catch(e){}
+    return '';
+  };
+  window.isMyPost = function(p){ if(!p) return false; var me=currentUserName(); return !!me && p.authorName===me; };
+  window.canManagePost = function(p){
+    try{ if(typeof canDeleteBoard==='function' && canDeleteBoard()) return true; }catch(e){}
+    return isMyPost(p);
+  };
+
+  ready(function(){
+    /* ---- (1) savePost 래핑: 저장 직후 방금 글에 작성자 식별자 주입 ---- */
+    if(typeof window.savePost==='function'){
+      var _save=window.savePost;
+      window.savePost=function(k){
+        var beforeN=(DATA.notices||[]).length, beforeF=(DATA.free||[]).length;
+        var r=_save.apply(this,arguments);
+        try{
+          var me=currentUserName();
+          if(k==='notice' && (DATA.notices||[]).length>beforeN){ DATA.notices[0].authorName=me; }
+          else if(k!=='notice' && (DATA.free||[]).length>beforeF){
+            DATA.free[0].authorName=me;
+            if(window._editAttach) DATA.free[0].attach=window._editAttach.slice(); /* 익명글도 첨부 보존 */
+          }
+        }catch(e){ console.warn('[게시판] 작성자 주입 경고:',e&&e.message); }
+        decorateBoardMine();
+        return r;
+      };
+    }
+
+    /* ---- (2) deletePost 래핑: 관리자 아니어도 '본인글'이면 통과 ---- */
+    if(typeof window.deletePost==='function'){
+      var _del=window.deletePost;
+      window.deletePost=function(k,id){
+        try{
+          var p=(k==='notice'?DATA.notices:DATA.free).find(function(x){return x.id===id;});
+          var admin=(typeof canDeleteBoard==='function'&&canDeleteBoard());
+          if(!admin && isMyPost(p)){
+            /* 본인글: 원본 권한가드를 우회하기 위해 직접 삭제 확인 모달 */
+            return myDeleteConfirm(k,id,p);
+          }
+        }catch(e){}
+        return _del.apply(this,arguments);   /* 관리자/비본인은 원본 그대로 */
+      };
+    }
+
+    /* 본인글 삭제 확인(원본 confirmDelete 재사용) */
+    window.myDeleteConfirm=function(k,id,p){
+      if(typeof modal!=='function'){ if(typeof confirmDelete==='function')confirmDelete(k,id); return; }
+      modal('<div style="text-align:center;"><div style="font-size:36px;">🗑️</div><h3 style="justify-content:center;">내 게시물 삭제</h3>'
+        +'<p style="color:var(--ink2);">"<b>'+(p&&p.title||'')+'</b>"<br>본인이 작성한 글을 삭제할까요? 되돌릴 수 없습니다.</p>'
+        +'<div style="display:flex;gap:8px;margin-top:6px;"><button class="btn ghost" style="flex:1;" onclick="closeModal()">취소</button>'
+        +'<button class="btn" style="flex:1;background:var(--danger);" onclick="confirmDelete(\''+k+'\',\''+id+'\')">삭제</button></div></div>');
+    };
+
+    /* ---- (3) viewPost 래핑: 상세 모달 오픈 후 본인글이면 수정 버튼 주입 ---- */
+    if(typeof window.viewPost==='function'){
+      var _view=window.viewPost;
+      window.viewPost=function(k,id){
+        var r=_view.apply(this,arguments);
+        try{
+          var p=(k==='notice'?DATA.notices:DATA.free).find(function(x){return x.id===id;});
+          if(isMyPost(p)){
+            var root=document.getElementById('modalRoot')||document;
+            var btnRow=root.querySelector('.btn[onclick*="closeModal"]');
+            var bar=btnRow && btnRow.parentElement;
+            if(bar && !bar.querySelector('.b-edit-detail')){
+              var edt=document.createElement('button');
+              edt.className='btn ghost b-edit-detail'; edt.style.flex='1';
+              edt.innerHTML='<i class="fa-solid fa-pen"></i> 수정';
+              edt.setAttribute('onclick',"closeModal();editPost('"+k+"','"+id+"')");
+              bar.insertBefore(edt, bar.firstChild);
+              /* 본인글인데 관리자 삭제버튼이 없으면 삭제버튼도 추가 */
+              if(!bar.querySelector('.btn[onclick*="deletePost"]')){
+                var del=document.createElement('button');
+                del.className='btn ghost b-del-detail'; del.style.flex='1';
+                del.innerHTML='<i class="fa-solid fa-trash"></i> 삭제';
+                del.setAttribute('onclick',"deletePost('"+k+"','"+id+"')");
+                bar.insertBefore(del, edt.nextSibling);
+              }
+            }
+          }
+        }catch(e){ console.warn('[게시판] 상세 수정버튼 경고:',e&&e.message); }
+        return r;
+      };
+    }
+
+    /* ---- (4) 수정 기능: 작성 모달 재활용 ---- */
+    window.editPost=function(k,id){
+      var p=(k==='notice'?DATA.notices:DATA.free).find(function(x){return x.id===id;});
+      if(!p) return;
+      if(!canManagePost(p)){ if(typeof permPopup==='function')permPopup(); return; }
+      if(typeof writePost!=='function') return;
+      writePost(k);
+      setTimeout(function(){
+        try{
+          if(el('postTitle')) el('postTitle').value=p.title||'';
+          if(el('postBody'))  el('postBody').innerHTML=p.body||'';
+          if(k==='notice' && el('postType') && p.type) el('postType').value=p.type;
+          if(p.attach){ window._editAttach=p.attach.slice(); if(typeof renderAttach==='function')renderAttach(); }
+          var root=document.getElementById('modalRoot')||document;
+          var saveBtn=Array.prototype.slice.call(root.querySelectorAll('button,.btn'))
+            .filter(function(b){return /savePost/.test(b.getAttribute('onclick')||'');})[0];
+          if(saveBtn){ saveBtn.setAttribute('onclick',"updatePost('"+k+"','"+id+"')"); saveBtn.innerHTML='<i class="fa-solid fa-check"></i> 수정 저장'; }
+          var h=root.querySelector('h3'); if(h) h.innerHTML='<i class="fa-solid fa-pen"></i> 게시글 수정';
+        }catch(e){ console.warn('[게시판] 편집 모달 경고:',e&&e.message); }
+      },30);
+    };
+
+    /* 수정 저장: 기존 글 갱신(작성자/날짜/id 보존) */
+    window.updatePost=function(k,id){
+      var arr=(k==='notice'?DATA.notices:DATA.free);
+      var p=arr.find(function(x){return x.id===id;}); if(!p){ if(typeof closeModal==='function')closeModal(); return; }
+      var title=(el('postTitle')&&el('postTitle').value||'').trim(); if(!title){ el('postTitle').focus(); return; }
+      p.title=title;
+      p.body=(el('postBody')&&el('postBody').innerHTML)||p.body;
+      if(k==='notice' && el('postType')) p.type=el('postType').value;
+      if(window._editAttach) p.attach=window._editAttach.slice();
+      if(typeof closeModal==='function') closeModal();
+      (k==='notice'?renderNotices():renderFree());
+      if(el('boardAllList') && typeof renderBoardAll==='function') renderBoardAll(k);
+    };
+
+    /* ---- (5) 목록 사후 보정: 본인글 행에 수정(+삭제) 버튼 주입 ---- */
+    window.decorateBoardMine=function(){
+      ['noticeList','freeList','boardAllList'].forEach(function(boxId){
+        var box=document.getElementById(boxId); if(!box) return;
+        box.querySelectorAll('li[onclick^="viewPost"]').forEach(function(li){
+          try{
+            var m=(li.getAttribute('onclick')||'').match(/viewPost\('(\w+)','([^']+)'\)/); if(!m) return;
+            var kk=m[1], id=m[2];
+            var p=(kk==='notice'?DATA.notices:DATA.free).find(function(x){return x.id===id;});
+            if(!p || !isMyPost(p)) return;
+            if(li.querySelector('.b-mine')) return;
+            var hasDel=!!li.querySelector('.b-del');
+            var html='<span class="b-edit b-mine" title="수정" onclick="event.stopPropagation();editPost(\''+kk+'\',\''+id+'\')"><i class="fa-solid fa-pen"></i></span>';
+            if(!hasDel) html+='<span class="b-del b-mine" title="삭제" onclick="event.stopPropagation();deletePost(\''+kk+'\',\''+id+'\')"><i class="fa-solid fa-trash"></i></span>';
+            li.insertAdjacentHTML('beforeend',html);
+          }catch(e){}
+        });
+      });
+    };
+
+    /* renderNotices/renderFree/renderBoardAll 래핑: 렌더 후 본인글 버튼 주입 */
+    ['renderNotices','renderFree','renderBoardAll'].forEach(function(name){
+      if(typeof window[name]!=='function') return;
+      var orig=window[name];
+      window[name]=function(){ var r=orig.apply(this,arguments); try{ decorateBoardMine(); }catch(e){} return r; };
+    });
+    /* 초기 1회 보정 */
+    try{ decorateBoardMine(); }catch(e){}
+  });
+})();
+</script>
+
 
 
 </body>
