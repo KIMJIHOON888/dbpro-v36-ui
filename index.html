@@ -732,6 +732,7 @@ function countUp(node,target,prefix,suffix){
 }
 
 /* ====================== 렌더 ====================== */
+/* [v26] expose */ window.renderTicker=renderTicker;
 function renderTicker(){
   var items = DATA.ranking.slice(0,6).map(function(r){var t=teamById(r.team);
     return '<span class="tk-item">🏆 ['+t.name+'] '+r.name+' <span class="amt">'+won(r.rev)+'원</span></span>';}).join('');
@@ -950,6 +951,7 @@ function rankRowHTML(r,i,full){
     +'<div class="rank-main"><b>'+r.name+'</b><span class="tt" style="color:'+t.color+'">['+t.name+']</span>'+flamesHTML(r.streak)+'<div class="ct">계약 '+r.ct+'건</div></div>'
     +'<div class="rank-amt">'+won(r.rev)+'</div></div>';
 }
+/* [v26] expose */ window.renderRank=renderRank;
 function renderRank(){
   var list=DATA.ranking.filter(function(r){return r.rev>0;}).sort(function(a,b){return b.rev-a.rev;});
   el('rankTop5').innerHTML = list.slice(0,5).map(function(r,i){return rankRowHTML(r,i,false);}).join('');
@@ -957,6 +959,12 @@ function renderRank(){
 function promoSet(season){ var y=DATA.promoArchive[DATA.promoYear]||{}; return (y[season]||[]).slice().sort(function(a,b){return b.sum-a.sum;}); }
 function promoBarColor(sum){ var g=DATA.promoGoal; if(sum>=g) return '#2563eb'; if(sum>=g*0.8) return '#10b981'; return '#f59e0b'; }
 function promoActive(season){ return DATA.promoYear==='2026' && season==='summer'; } // 현재 진행 시즌(데모)
+/* [v26] 시책 활성 시즌을 현재 실제 월 기준으로 판단(1·2월=winter, 7·8월=summer). 원본 줄 보존하고 재정의 */
+function promoActive(season){
+  var act = window.__promoActiveSeason;
+  if(act===undefined){ var mm=new Date().getMonth()+1; act=(mm===1||mm===2)?'winter':((mm===7||mm===8)?'summer':null); }
+  return act===season;
+}
 function promoCard(season){
   var isSummer=(season==='summer');
   var active=promoActive(season);
@@ -977,6 +985,53 @@ function promoCard(season){
   }
   return '<div class="'+cls+'"><div class="p-ic"><i class="fa-solid '+icon+'"></i></div><div class="p-name">'+label+' '+tag+'</div><div class="p-sub">'+period+' · 목표 '+DATA.promoGoal+'만</div>'+body+'</div>';
 }
+
+/* [v27] 시책 상태 판정 — 현재 실제 월 기준 (대장 규칙 확정)
+   윈터: 1~2월=active(컬러+네온) / 3~11월=ended(컬러유지·"종료") / 12월=off(흑백 리셋)
+   썸머: 7~8월=active / 9~11월=ended / 1~6월·12월=off
+   12월 1일 전체 리셋(off) 포함. 매년 시작월에 자동 재활성. */
+function promoState(season){
+  var mm = new Date().getMonth()+1;   /* 1~12 */
+  if(season==='winter'){
+    if(mm===1 || mm===2) return 'active';
+    if(mm>=3 && mm<=11)  return 'ended';
+    return 'off';                       /* 12월 = 리셋 */
+  } else { /* summer */
+    if(mm===7 || mm===8) return 'active';
+    if(mm>=9 && mm<=11)  return 'ended';
+    return 'off';                       /* 1~6월·12월 */
+  }
+}
+window.promoState = promoState;
+
+/* [v27] promoCard 재정의 — 상태(active/ended/off)에 따라 컬러/흑백/네온/태그 결정. 원본 줄 보존하고 재선언 */
+function promoCard(season){
+  var isSummer=(season==='summer');
+  var state=promoState(season);            /* active | ended | off */
+  var data=promoSet(season); var hasData=data.length>0;
+  var lit=(state==='active'||state==='ended');   /* 진행중·종료 = 컬러, off = 흑백 */
+  var neon=(state==='active');                   /* 네온은 진행중에만 */
+  var cls='promo '+(lit?'on':'off')+(isSummer?' bg-summer':' bg-winter winter')+(neon?(isSummer?' neon-s':' neon-w'):'');
+  var icon=isSummer?'fa-sun':'fa-snowflake', label=isSummer?'SUMMER 시책':'WINTER 시책', period=isSummer?'7·8월 합산':'1·2월 합산';
+  var tag = state==='active' ? '<span class="p-tag">진행중</span>'
+          : state==='ended'  ? '<span class="p-tag done">종료</span>'
+          : '';                                   /* off = 태그 없음 */
+  var body;
+  if(hasData){
+    var rows=data.slice(0,4).map(function(p,i){
+      var t=teamById(p.team);var pct=Math.min(p.sum/DATA.promoGoal*100,100);var col=promoBarColor(p.sum);var done=p.sum>=DATA.promoGoal;
+      return '<div class="pm-row"><span class="pm-rank">'+(i+1)+'</span><span style="width:46px;font-weight:700;">'+p.name+'</span><div class="pm-bar"><span style="width:'+pct+'%;background:'+col+';"></span></div><span style="width:74px;text-align:right;font-weight:800;">'+p.sum+'/'+DATA.promoGoal+(done?' ✈️':'')+'</span></div>';
+    }).join('');
+    var dn=data.filter(function(p){return p.sum>=DATA.promoGoal;}).length;
+    body='<div class="promo-mini">'+rows+'<div class="pm-more" onclick="openPromoAll(\''+season+'\')">+ '+data.length+'명 전체보기 (달성 '+dn+'명)</div></div>';
+  } else {
+    var msg = state==='active' ? '진행 데이터 없음' : (state==='off' ? '시즌 외 / 예정' : '실적 없음');
+    body='<div class="p-sub" style="margin-top:6px;opacity:.7;">'+msg+'</div>';
+  }
+  return '<div class="'+cls+'"><div class="p-ic"><i class="fa-solid '+icon+'"></i></div><div class="p-name">'+label+' '+tag+'</div><div class="p-sub">'+period+' · 목표 '+DATA.promoGoal+'만</div>'+body+'</div>';
+}
+
+/* [v26] expose */ window.renderPromo=renderPromo;
 function renderPromo(){ el('promoBox').innerHTML = promoCard('winter')+promoCard('summer'); }
 function onPromoYear(){ DATA.promoYear=el('promoYear').value; renderPromo(); }
 
@@ -2032,6 +2087,70 @@ updateTeamBtn();
     }catch(e){}
   }
 
+  /* ---- [v26] 멤버별 집계 (랭킹·시책 실데이터) ---- */
+  /* 멤버별 매출/계약 (선택 연/월). streak는 데이터 없으므로 0 */
+  function computeMembers(recs, year, month, isAll){
+    var rev={}, ct={}, team={};
+    (recs||[]).forEach(function(d){
+      if(d.is_frozen) return;
+      if(normStatus(d.status)!=='계약') return;
+      var mem=d.member; if(!mem) return;
+      team[mem]=teamKey(d.team);
+      getDBContracts(d).forEach(function(c){
+        if(c.isLapsed) return;
+        if(!ymMatch(c.date||d.date, year, month, isAll)) return;
+        var amt=safeNum(c.totalAmount||c.amount);
+        (c.shareList||[]).forEach(function(s2){ if(isExternal(s2.partner)&&safeNum(s2.amount)>0) amt-=safeNum(s2.amount); });
+        rev[mem]=(rev[mem]||0)+amt; ct[mem]=(ct[mem]||0)+1;
+      });
+    });
+    var list=Object.keys(rev).map(function(m){ return {name:m, team:team[m]||'t3', rev:rev[m], ct:ct[m]||0, streak:0, role:'member'}; });
+    list.sort(function(a,b){ return b.rev-a.rev; });
+    return list;
+  }
+
+  /* 시즌별 멤버 매출 합산(만원). months=[7,8] or [1,2] */
+  function computeSeasonRev(recs, year, months){
+    var rev={}, team={};
+    (recs||[]).forEach(function(d){
+      if(d.is_frozen) return;
+      if(normStatus(d.status)!=='계약') return;
+      var mem=d.member; if(!mem) return; team[mem]=teamKey(d.team);
+      getDBContracts(d).forEach(function(c){
+        if(c.isLapsed) return;
+        var p=parseYM(c.date||d.date); if(p.y!==year || months.indexOf(p.m)<0) return;
+        var amt=safeNum(c.totalAmount||c.amount);
+        (c.shareList||[]).forEach(function(s2){ if(isExternal(s2.partner)&&safeNum(s2.amount)>0) amt-=safeNum(s2.amount); });
+        rev[mem]=(rev[mem]||0)+amt;
+      });
+    });
+    /* 만원 단위, 무실적(0) 제외, sum 내림차순 */
+    return Object.keys(rev).filter(function(m){return rev[m]>0;})
+      .map(function(m){ return {name:m, team:team[m]||'t3', sum:Math.round(rev[m]/10000)}; })
+      .sort(function(a,b){ return b.sum-a.sum; });
+  }
+
+  /* DATA.ranking 주입 (선택 연/월 기준 멤버 랭킹) */
+  function injectRanking(){
+    if(!window.__dbRecords) return;
+    var sel=getSel();
+    DATA.ranking = computeMembers(window.__dbRecords, sel.y, sel.m, sel.isAll);
+  }
+
+  /* DATA.promoArchive 주입 (시즌 매출 합산) + 현재월 기준 활성 시즌 */
+  function injectPromo(){
+    if(!window.__dbRecords) return;
+    var sel=getSel(); var y=sel.y;
+    var winter=computeSeasonRev(window.__dbRecords, y, [1,2]);
+    var summer=computeSeasonRev(window.__dbRecords, y, [7,8]);
+    DATA.promoArchive = DATA.promoArchive || {};
+    DATA.promoArchive[String(y)] = {winter:winter, summer:summer};
+    DATA.promoYear = String(y);
+    /* 현재 실제 월로 활성 시즌 판단(1·2월=winter, 7·8월=summer) */
+    window.__promoActiveSeason = (function(){ var mm=new Date().getMonth()+1;
+      if(mm===1||mm===2) return 'winter'; if(mm===7||mm===8) return 'summer'; return null; })();
+  }
+
   /* [v21] 우승배너 "계약 N건"을 실집계로 교체 (매출은 이미 실데이터, 건수만 더미였음) */
   function patchChampContracts(){
     try{
@@ -2074,10 +2193,15 @@ updateTeamBtn();
     if(typeof window.renderKPI==='function') window.renderKPI();        // 원본 렌더(더미값)
     patchKPICards(st);                                                  // → 실데이터로 사후 보정
     injectRace();                                                       // [A] teams 월별매출/목표 주입
-    if(typeof window.renderRace==='function') window.renderRace();      // 레이스 재렌더(실데이터)
+    injectRanking();                                                    // [v26] 랭킹 실데이터 (renderRace 전에 — 우승배너 개인1위가 ranking 사용)
+    injectPromo();                                                      // [v26] 시책 실데이터
+    if(typeof window.renderRace==='function') window.renderRace();      // 레이스+우승배너 재렌더(실데이터)
     if(typeof window.renderChart==='function') window.renderChart();    // 차트 재렌더(실데이터)
     patchRaceLabels();                                                  // [보완B] 0막대 안내
     patchChampContracts();                                              // [v21] 우승배너 계약건수 실데이터 보정
+    if(typeof window.renderRank==='function') window.renderRank();      // 랭킹 재렌더
+    if(typeof window.renderPromo==='function') window.renderPromo();    // 시책 재렌더
+    if(typeof window.renderTicker==='function') window.renderTicker();  // 상단 티커도 ranking 사용 → 갱신
   };
 
   /* db_records 1회 로드(읽기 전용) → 적용 */
@@ -2134,6 +2258,151 @@ updateTeamBtn();
 })();
 </script>
 
+<!-- ===== [v28] 게시판 첨부파일 — 익명게시판 첨부 + 타입별 아이콘 + 이미지 라이트박스 + Storage 골격 ===== -->
+<style id="attach-css">
+.attach-item img{cursor:zoom-in;transition:.15s;}
+.attach-item img:hover{opacity:.85;}
+.lb-mask{position:fixed;inset:0;background:rgba(8,12,24,.92);z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;}
+.lb-mask img{max-width:92vw;max-height:84vh;border-radius:8px;box-shadow:0 12px 48px rgba(0,0,0,.5);}
+.lb-cap{color:#dbe4f5;font-size:13px;margin-top:12px;font-weight:600;}
+.lb-x{position:absolute;top:18px;right:24px;color:#fff;font-size:30px;cursor:pointer;line-height:1;opacity:.8;}
+.lb-x:hover{opacity:1;}
+.att-ico{width:30px;height:30px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;font-size:14px;flex:none;color:#fff;}
+.att-meta{font-size:10px;color:var(--muted);margin-left:4px;}
+</style>
+<script id="board-attach">
+(function(){
+  function ready(fn){ if(document.readyState!=='loading') fn(); else document.addEventListener('DOMContentLoaded',fn); }
+
+  /* 파일 확장자 → 타입/아이콘/색 */
+  window.attachKind = function(name){
+    var ext=(String(name||'').split('.').pop()||'').toLowerCase();
+    if(['jpg','jpeg','png','gif','webp','bmp','svg','heic'].indexOf(ext)>=0) return {t:'image', ic:'fa-image', c:'#0ea5e9'};
+    if(['xls','xlsx','xlsm','csv'].indexOf(ext)>=0) return {t:'excel', ic:'fa-file-excel', c:'#1d7044'};
+    if(['doc','docx'].indexOf(ext)>=0) return {t:'word', ic:'fa-file-word', c:'#2563eb'};
+    if(['ppt','pptx'].indexOf(ext)>=0) return {t:'ppt', ic:'fa-file-powerpoint', c:'#d2691e'};
+    if(ext==='pdf') return {t:'pdf', ic:'fa-file-pdf', c:'#dc2626'};
+    return {t:'file', ic:'fa-file', c:'#64748b'};
+  };
+  window.fmtBytes = function(n){ if(!n&&n!==0) return ''; if(n<1024) return n+'B'; if(n<1048576) return (n/1024).toFixed(0)+'KB'; return (n/1048576).toFixed(1)+'MB'; };
+
+  /* ---- 이미지 라이트박스 ---- */
+  window.openLightbox = function(src, cap){
+    if(!src) return;
+    var m=document.createElement('div'); m.className='lb-mask';
+    m.innerHTML='<span class="lb-x" onclick="this.parentElement.remove()">&times;</span>'
+      +'<img src="'+src+'" alt="">'+(cap?'<div class="lb-cap">'+cap+'</div>':'');
+    m.addEventListener('click',function(e){ if(e.target===m) m.remove(); });
+    document.addEventListener('keydown',function esc(e){ if(e.key==='Escape'){ m.remove(); document.removeEventListener('keydown',esc); } });
+    document.body.appendChild(m);
+  };
+
+  ready(function(){
+    /* (1) renderAttach 재정의 — 작성 모달 첨부 목록: 타입 아이콘 + 용량 + 이미지 미리보기(클릭 확대) */
+    window.renderAttach=function(){
+      var host=document.getElementById('attachList'); if(!host) return;
+      host.innerHTML=(window._editAttach||[]).map(function(a,i){
+        var k=attachKind(a.name);
+        var left = a.img
+          ? '<img src="'+a.img+'" onclick="event.stopPropagation();openLightbox(\''+a.img+'\',\''+(a.name||'').replace(/\'/g,"")+'\')">'
+          : '<span class="att-ico" style="background:'+k.c+'"><i class="fa-solid '+k.ic+'"></i></span>';
+        var hint = a.img ? '<span class="att-meta">(이미지 클릭 시 미리보기 가능)</span>' : '';
+        return '<div class="attach-item">'+left+'<span>'+a.name+'</span>'
+          +(a.size?'<span class="att-meta">'+fmtBytes(a.size)+'</span>':'')+hint
+          +'<span class="rm" onclick="rmAttach('+i+')">✕</span></div>';
+      }).join('');
+    };
+
+    /* (2) onPickFiles 재정의 — size 기록 + (연동 골격) 추후 Storage 업로드 자리 */
+    window.onPickFiles=function(){
+      var inp=document.getElementById('postFiles'); if(!inp) return;
+      Array.prototype.forEach.call(inp.files, function(f){
+        var item={name:f.name, img:null, data:null, size:f.size, mime:f.type};
+        var isImg=(String(f.type).indexOf('image')===0);
+        /* 모든 파일을 base64(data)로 저장 → 프로토타입에서도 다운로드 가능. 이미지는 미리보기(img)도 동일 데이터 */
+        var r=new FileReader();
+        r.onload=function(){ item.data=r.result; if(isImg) item.img=r.result; renderAttach(); };
+        r.readAsDataURL(f);
+        /* [연동 골격] 실제 배포 시: uploadToStorage(f) → item.url=공개URL 저장(다운로드는 url 우선). */
+        window._editAttach.push(item);
+      });
+      renderAttach();
+    };
+
+    /* (3) writePost 재정의 — 익명게시판(free)에도 첨부 UI 추가 (원본은 notice만) */
+    window.writePost=function(k){
+      if(typeof canWriteBoard==='function' && !canWriteBoard(k)){ if(typeof permPopup==='function')permPopup(); return; }
+      window._editAttach=[];
+      var typeSel = k==='notice' ? '<div class="field"><label>구분</label><select class="inp" id="postType"><option value="일반">일반</option><option value="필독">필독 (상단 고정)</option></select></div>' : '';
+      /* 공지·익명 모두 첨부 가능 */
+      var attachUI = '<div class="field"><label>첨부파일 <span style="color:var(--muted);font-weight:400;">(이미지·엑셀·워드·PPT·PDF — 연동 시 실제 저장)</span></label>'
+        +'<input type="file" id="postFiles" multiple accept="image/*,.xls,.xlsx,.xlsm,.csv,.doc,.docx,.ppt,.pptx,.pdf" onchange="onPickFiles()" style="font-size:12px;"><div class="attach-list" id="attachList"></div></div>';
+      var palette=['#1e293b','#ef4444','#d97706','#10b981','#3b82f6','#8b5cf6'].map(function(c){return '<button type="button" class="sw" style="background:'+c+'" onclick="fmt(\'foreColor\',\''+c+'\')"></button>';}).join('');
+      modal('<h3><i class="fa-solid fa-pen"></i> '+(k==='notice'?'공지 작성':'익명 글쓰기')+(k==='free'?' <span style="font-size:11px;color:var(--muted);font-weight:600;">작성자 익명 처리</span>':'')+'</h3>'
+        +typeSel
+        +'<div class="field"><label>제목</label><input class="inp" id="postTitle" placeholder="제목을 입력하세요"></div>'
+        +'<div class="field"><label>본문</label>'
+          +'<div class="editor-tb">'
+            +'<button type="button" onclick="fmt(\'bold\')" style="font-weight:900;">B</button>'
+            +'<button type="button" onclick="fmt(\'italic\')" style="font-style:italic;">I</button>'
+            +'<button type="button" onclick="fmt(\'underline\')" style="text-decoration:underline;">U</button>'
+            +palette
+            +'<button type="button" onclick="insChar(\'★\')">★</button><button type="button" onclick="insChar(\'※\')">※</button><button type="button" onclick="insChar(\'✔\')">✔</button>'
+            +'<button type="button" id="emojiBtn" onclick="toggleEmoji(event)">😊</button>'
+          +'</div>'
+          +'<div class="editor-body" id="postBody" contenteditable="true"></div></div>'
+        +attachUI
+        +'<div style="display:flex;gap:8px;margin-top:6px;"><button class="btn ghost" style="flex:1;" onclick="closeModal()">취소</button><button class="btn gold" style="flex:2;" onclick="savePost(\''+k+'\')">등록</button></div>');
+      setTimeout(function(){var t=document.getElementById('postTitle');if(t)t.focus();},50);
+    };
+
+    /* (4) viewPost 첨부 렌더에 라이트박스 — board-mine 래퍼가 원본 viewPost 호출 후, 상세 모달의 첨부 이미지에 클릭 확대 부여 */
+    var _origView = window.viewPost;
+    window.viewPost = function(k,id){
+      var r = _origView ? _origView.apply(this,arguments) : undefined;
+      try{
+        var box=document.getElementById('modalBox')||document;
+        /* 현재 글의 첨부 배열 — 다운로드 데이터(data/url) 매칭용 */
+        var post=(k==='notice'?DATA.notices:DATA.free).find(function(x){return x.id===id;});
+        var atts=(post&&post.attach)||[];
+        var items=box.querySelectorAll('.attach-item');
+        Array.prototype.forEach.call(items, function(it, idx){
+          if(it.__deco) return; it.__deco=true;
+          var a=atts[idx]||{};
+          var img=it.querySelector('img');
+          var nameEl=it.querySelector('span');
+          var nm=(a.name)||(nameEl?nameEl.textContent:'');
+          if(img){
+            /* 이미지: 클릭 미리보기 + 안내문구 */
+            if(!img.__lb){ img.__lb=true; img.style.cursor='zoom-in';
+              img.addEventListener('click',function(e){ e.stopPropagation(); openLightbox(img.getAttribute('src'), nm); }); }
+            if(nameEl && !it.querySelector('.att-hint')){
+              var hint=document.createElement('span'); hint.className='att-hint';
+              hint.style.cssText='font-size:11px;color:var(--muted);margin-left:6px;';
+              hint.textContent='(이미지 클릭 시 미리보기 가능)';
+              nameEl.insertAdjacentElement('afterend', hint);
+            }
+          } else {
+            /* 비이미지: 타입 아이콘 보정 */
+            var ico=it.querySelector('.fa-paperclip'); if(ico){ var k2=attachKind(nm); ico.className='fa-solid '+k2.ic; ico.style.color=k2.c; }
+          }
+          /* 다운로드 버튼 (data 또는 url 있으면) */
+          var href=a.url||a.data||(img&&img.getAttribute('src'));
+          if(href && !it.querySelector('.att-dl')){
+            var dl=document.createElement('a');
+            dl.className='att-dl'; dl.href=href; dl.download=nm||'download';
+            dl.title='다운로드'; dl.innerHTML='<i class="fa-solid fa-download"></i>';
+            dl.style.cssText='margin-left:auto;color:var(--navy);cursor:pointer;text-decoration:none;padding:2px 6px;';
+            dl.addEventListener('click',function(e){ e.stopPropagation(); });
+            it.appendChild(dl);
+          }
+        });
+      }catch(e){ console.warn('[첨부] 상세 보정 경고:', e&&e.message); }
+      return r;
+    };
+  });
+})();
+</script>
 <!-- ===== [v22] 회귀 복구: NaN% 방어 + db_records 빈로드 방지·재시도 ===== -->
 <script id="regression-fix">
 (function(){
