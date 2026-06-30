@@ -2827,11 +2827,24 @@ updateTeamBtn();
   if(typeof window.confirmDelete!=='function') return;
   var _cd=window.confirmDelete;
   window.confirmDelete=function(k,id){
+    /* 삭제 전: 글이 메모리에서 지워지기 전에 첨부 path 수집 */
+    var paths=[];
+    try{
+      var arr=(typeof boardData==='function'?boardData(k):[])||[];
+      var post=arr.find(function(x){return x.id===id;});
+      ((post&&post.attach)||[]).forEach(function(a){ if(a&&a.path) paths.push(a.path); });
+    }catch(e){}
     var r=_cd.apply(this,arguments);   /* 원본: in-memory 삭제+렌더+모달닫기 */
     try{ var sb=window.sbClient;
       if(sb && id) sb.from('board_posts').delete().eq('id',id).then(function(res){
         if(res && res.error) console.warn('[게시판] 삭제 경고:', res.error.message);
         else console.log('[게시판] 삭제됨:', id); });
+      /* 첨부 파일도 Storage에서 제거(고아 파일 방지). path 없는 옛 첨부는 자동 제외 */
+      if(sb && sb.storage && paths.length){
+        sb.storage.from('board-attachments').remove(paths).then(function(res){
+          if(res && res.error) console.warn('[첨부] 파일 삭제 경고:', res.error.message);
+          else console.log('[첨부] 파일 삭제됨:', paths.length+'개'); });
+      }
     }catch(e){ console.warn('[게시판] 삭제 처리 경고:', e&&e.message); }
     return r;
   };
