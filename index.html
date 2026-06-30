@@ -2742,5 +2742,82 @@ updateTeamBtn();
 
 <style>#link-to-signup{display:none !important;}</style>
 
+<!-- ===== [v36.7 / C-1] 게시판 영속화: board_posts 읽기+쓰기 (원본 0 삭제, additive 체인 래핑) =====
+     v36 신규 기능(v35에 없음). 영업데이터(db_records)와 별개 테이블이라 안전.
+     권한: 공지 글쓰기=관리자/BM/SM(ADMIN_ROLES), 익명=전원. 삭제 영속화는 다음 micro-step. 롤백: 이 블록만 삭제. -->
+<script>
+(function(){
+  function sbc(){ return window.sbClient; }
+  var WRITE_ROLES=['system_admin','BM','SM'];   /* 공지 글쓰기 권한 */
+  var _loaded=false;
+
+  function ymd2(ts){ try{ var d=new Date(ts); if(isNaN(d.getTime()))return '';
+    return ('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); }catch(e){ return ''; } }
+
+  function rowToPost(r){
+    var p={ id:r.id, title:r.title||'', body:r.body||'', date:ymd2(r.created_at), attach:(r.attach||[]), authorName:r.author_name||'' };
+    if(r.kind==='notice'){ p.type=r.type||'일반'; p.author=r.author_role||''; }
+    return p;
+  }
+
+  /* READ: board_posts 불러와 DATA.notices/free 채우고 렌더 */
+  async function loadBoard(){
+    var sb=sbc(); if(!sb || typeof DATA==='undefined') return;
+    try{
+      var res=await sb.from('board_posts').select('*').order('created_at',{ascending:false});
+      if(res.error){ console.warn('[게시판] 읽기 경고:', res.error.message); return; }
+      var notices=[], free=[];
+      (res.data||[]).forEach(function(r){ if(r.kind==='notice') notices.push(rowToPost(r)); else free.push(rowToPost(r)); });
+      DATA.notices=notices; DATA.free=free;
+      if(typeof renderNotices==='function') renderNotices();
+      if(typeof renderFree==='function') renderFree();
+      try{ if(typeof decorateBoardMine==='function') decorateBoardMine(); }catch(e){}
+      console.log('[게시판] 불러옴: 공지 '+notices.length+' / 익명 '+free.length);
+    }catch(e){ console.warn('[게시판] 읽기 예외:', e&&e.message); }
+  }
+
+  function myName(){ return (typeof currentUserName==='function' ? (currentUserName()||'') : ''); }
+
+  /* 저장: 방금 추가된 글 1건을 board_posts에 insert */
+  async function insertPost(kind, post){
+    var sb=sbc(); if(!sb || !post) return;
+    var row={ id:post.id, kind:kind, title:post.title||'', body:post.body||'',
+      author_name: myName()||post.authorName||'', attach:post.attach||[] };
+    if(kind==='notice'){ row.type=post.type||'일반'; row.author_role=post.author||DATA.role||''; row.is_anon=false; }
+    else { row.is_anon=true; }
+    try{ var res=await sb.from('board_posts').insert(row);
+      if(res && res.error) console.warn('[게시판] 저장 실패:', res.error.message);
+      else console.log('[게시판] 저장됨:', kind, post.id);
+    }catch(e){ console.warn('[게시판] 저장 예외:', e&&e.message); }
+  }
+
+  /* WRITE: savePost 체인 래핑 — 공지 권한 게이트 + 저장 후 DB insert */
+  if(typeof window.savePost==='function'){
+    var _save=window.savePost;
+    window.savePost=function(k){
+      if(k==='notice' && WRITE_ROLES.indexOf(DATA.role)<0){
+        if(typeof modal==='function') modal('<div style="text-align:center;"><div style="font-size:36px;">🔒</div>'
+          +'<h3 style="justify-content:center;">작성 권한 없음</h3>'
+          +'<p style="color:var(--ink2);">지점 주요 공지는 <b>관리자·BM·SM</b>만 작성할 수 있습니다.</p>'
+          +'<button class="btn ghost" style="width:100%;margin-top:10px;" onclick="closeModal()">닫기</button></div>');
+        return;
+      }
+      var bN=(DATA.notices||[]).length, bF=(DATA.free||[]).length;
+      var r=_save.apply(this,arguments);
+      try{
+        if(k==='notice' && (DATA.notices||[]).length>bN) insertPost('notice', DATA.notices[0]);
+        else if(k!=='notice' && (DATA.free||[]).length>bF) insertPost('free', DATA.free[0]);
+      }catch(e){ console.warn('[게시판] 저장 처리 경고:', e&&e.message); }
+      return r;
+    };
+  }
+
+  /* READ 후킹: 로그인+데이터 준비 후(applyStats 첫 실행) 1회 불러오기 */
+  if(typeof window.applyStats==='function'){
+    var _ap=window.applyStats;
+    window.applyStats=function(){ _ap.apply(this,arguments); if(!_loaded){ _loaded=true; loadBoard(); } };
+  }
+})();
+</script>
 </body>
 </html>
