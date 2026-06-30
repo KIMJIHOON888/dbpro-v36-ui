@@ -2782,7 +2782,8 @@ updateTeamBtn();
   async function insertPost(kind, post){
     var sb=sbc(); if(!sb || !post) return;
     var row={ id:post.id, kind:kind, title:post.title||'', body:post.body||'',
-      author_name: myName()||post.authorName||'', attach:post.attach||[] };
+      author_name: myName()||post.authorName||'',
+      attach:(window._editAttach&&window._editAttach.length?window._editAttach.slice():(post.attach||[])) };
     if(kind==='notice'){ row.type=post.type||'일반'; row.author_role=post.author||DATA.role||''; row.is_anon=false; }
     else { row.is_anon=true; }
     try{ var res=await sb.from('board_posts').insert(row);
@@ -2834,6 +2835,54 @@ updateTeamBtn();
     }catch(e){ console.warn('[게시판] 삭제 처리 경고:', e&&e.message); }
     return r;
   };
+})();
+</script>
+<!-- ===== [v36.9 / C-2a] 게시판 첨부 Storage 업로드: 저장 시 base64 -> 파일 업로드 후 url 치환 (원본 0 삭제) =====
+     표시/다운로드는 기존 코드가 a.url을 우선 사용하므로 url만 채우면 자동 동작. 업로드 실패 시 base64 유지(폴백). 롤백: 이 블록만 삭제. -->
+<script>
+(function(){
+  function ready(fn){ if(document.readyState!=='loading') fn(); else document.addEventListener('DOMContentLoaded',fn); }
+  var BUCKET='board-attachments';
+
+  function dataURLtoBlob(durl){
+    var parts=String(durl).split(','); var mime=((parts[0]||'').match(/:(.*?);/)||[])[1]||'application/octet-stream';
+    var bin=atob(parts[1]||''); var arr=new Uint8Array(bin.length);
+    for(var i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+    return new Blob([arr], {type:mime});
+  }
+  function extOf(name){ var e=(String(name||'').split('.').pop()||'').toLowerCase(); return (e&&e.length<=5)?('.'+e):''; }
+
+  /* _editAttach의 base64 첨부를 Storage에 업로드하고 url로 치환(base64 제거) */
+  async function uploadEditAttach(){
+    var sb=window.sbClient; var list=window._editAttach;
+    if(!sb || !sb.storage || !list || !list.length) return;
+    for(var i=0;i<list.length;i++){ var a=list[i];
+      if(!a || a.url || !a.data) continue;   /* 이미 업로드됨 또는 데이터 없음 */
+      try{
+        var blob=dataURLtoBlob(a.data);
+        var path='posts/'+Date.now()+'_'+Math.random().toString(36).slice(2,8)+extOf(a.name);
+        var up=await sb.storage.from(BUCKET).upload(path, blob, {contentType:a.mime||blob.type, upsert:false});
+        if(up && up.error){ console.warn('[첨부] 업로드 실패('+a.name+'):', up.error.message); continue; }  /* 실패->base64 유지 */
+        var pub=sb.storage.from(BUCKET).getPublicUrl(path);
+        var url=pub&&pub.data&&pub.data.publicUrl;
+        if(url){ a.url=url; a.path=path;
+          if(String(a.mime||'').indexOf('image')===0 || a.img) a.img=url;   /* 이미지 미리보기도 url로 */
+          delete a.data;   /* base64 제거 -> DB/jsonb 가벼워짐 */
+          console.log('[첨부] 업로드됨:', a.name);
+        }
+      }catch(e){ console.warn('[첨부] 업로드 예외('+a.name+'):', e&&e.message); }
+    }
+  }
+
+  /* savePost 최외곽 래핑: 저장 전에 업로드 먼저 완료 -> attach가 url로 저장됨 */
+  ready(function(){
+    if(typeof window.savePost!=='function') return;
+    var _save=window.savePost;
+    window.savePost=async function(k){
+      try{ await uploadEditAttach(); }catch(e){ console.warn('[첨부] 업로드 처리 경고:', e&&e.message); }
+      return _save.apply(this, arguments);
+    };
+  });
 })();
 </script>
 </body>
