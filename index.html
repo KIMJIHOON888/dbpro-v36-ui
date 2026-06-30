@@ -2915,10 +2915,116 @@ updateTeamBtn();
         var ds1=chartObj.data.datasets[1];   /* 단일팀 구성: [0]올해실적 [1]목표 [2]전년 */
         if(gm && gm.length && ds1 && /목표/.test(ds1.label||'')){
           ds1.data = gm.slice();             /* 월별 목표로 교체 */
-          chartObj.update('none');
+          chartObj.update();                 /* 전체 갱신(즉시 다시 그리기) - 'none'은 화면 갱신 안 돼 F12때만 보이던 버그 */
         }
       }
     }catch(e){ console.warn('[연간차트] 목표선 보정 경고:', e&&e.message); }
+  };
+  /* bare renderChart() 호출(팀칩 토글/테마변경 등)도 래퍼 거치게 전역 바인딩 동기화 */
+  try{ renderChart = window.renderChart; }catch(e){}
+})();
+</script>
+<!-- ===== [로그인창 조정] 카드 폭 확대(예시문구 잘림 해결) + 버전 표시 구석으로 (CSS 덮어쓰기, 원본 0 삭제) ===== -->
+<style>
+#loginGate .auth-box{max-width:500px;position:relative;}
+#loginGate .auth-version{position:absolute;top:14px;right:18px;bottom:auto;margin:0;
+  font-size:10px;color:#cbd5e1;font-weight:600;letter-spacing:.02em;}
+</style>
+<!-- ===== [버전 표기] auth-version 텍스트를 현재 버전으로 치환 (원본 0 삭제, 작업마다 셋째자리 증가) ===== -->
+<script>
+(function(){
+  var VER='v36.0.13';
+  function setVer(){ try{
+    document.querySelectorAll('.auth-version').forEach(function(e){ e.textContent=VER; });
+    var ph=document.getElementById('login-phone'); if(ph) ph.placeholder='휴대폰 번호 (010-1234-5678)';  /* "예: " 제거 - 잘림 방지 */
+  }catch(_){} }
+  if(document.readyState!=='loading') setVer(); else document.addEventListener('DOMContentLoaded', setVer);
+})();
+</script>
+<!-- ===== [v36.0.13 / 콘솔 정정 + 첨부 용량 관리] (원본 0 삭제, additive) =====
+     1) 콘솔 '연습 금고' 문구 정정 로그  2) 시스템설정에 '첨부 용량 관리' 주입 + 고아파일 탐지/삭제. 롤백: 이 블록만 삭제. -->
+<script>
+(function(){
+  /* 1) 콘솔 정정 — 실금고 라이브 명시(원본 로그는 보존, 정정만 추가) */
+  try{ var ref=(window.sbClient&&window.SB_URL)?'':''; console.log('%c[SB] 실금고 라이브 연결됨 (B-5 적용) — 위 "연습 금고" 문구는 무시하세요', 'color:#c1121f;font-weight:bold'); }catch(_){}
+
+  /* 2) 첨부 용량 관리 */
+  var _files=[], _pendingDel=[];
+  function sbc(){ return window.sbClient; }
+  function bytes(n){ return (typeof window.fmtBytes==='function') ? window.fmtBytes(n) : (n+'B'); }
+
+  /* 설정 모달에 '첨부 용량 관리' 버튼 주입 */
+  function injectBtn(){
+    try{
+      var box=document.getElementById('modalBox'); if(!box) return;
+      if(box.querySelector('#attachMgrBtn')) return;
+      var saveBtn=box.querySelector('button[onclick*="applySettings"]');
+      var row=saveBtn ? saveBtn.parentElement : null;
+      var sec=document.createElement('div'); sec.className='field';
+      sec.innerHTML='<label>첨부파일 저장공간 <span style="color:var(--muted);font-weight:400;">(용량 확인 · 고아 파일 정리)</span></label>'
+        +'<button id="attachMgrBtn" type="button" class="btn ghost" style="width:100%;" onclick="openAttachManager()"><i class="fa-solid fa-database"></i> 첨부 용량 확인 · 정리</button>';
+      if(row && row.parentNode) row.parentNode.insertBefore(sec, row); else box.appendChild(sec);
+    }catch(e){}
+  }
+  if(typeof window.renderSettingsModal==='function'){
+    var _rsm=window.renderSettingsModal;
+    window.renderSettingsModal=function(){ _rsm.apply(this,arguments); injectBtn(); };
+    try{ renderSettingsModal = window.renderSettingsModal; }catch(e){}
+  }
+
+  /* 용량 관리 모달 열기: board_posts 사용 path 수집 -> Storage 목록 -> 고아 판정 */
+  window.openAttachManager=async function(){
+    var sb=sbc(); if(!sb||!sb.storage){ if(typeof modal==='function')modal('<p>연결이 없습니다.</p><button class="btn" onclick="closeModal()">닫기</button>'); return; }
+    if(typeof modal==='function') modal('<h3><i class="fa-solid fa-database"></i> 첨부 용량 관리</h3><p style="color:var(--muted);text-align:center;padding:20px;">불러오는 중...</p>');
+    try{
+      var used={};
+      var pr=await sb.from('board_posts').select('attach');
+      (pr.data||[]).forEach(function(r){ (r.attach||[]).forEach(function(a){ if(a&&a.path) used[a.path]=true; }); });
+      var lr=await sb.storage.from('board-attachments').list('posts',{limit:1000});
+      var list=(lr.data||[]).filter(function(f){ return f.name && f.name.indexOf('.emptyFolderPlaceholder')<0; });
+      _files=list.map(function(f){ var path='posts/'+f.name; var size=(f.metadata&&f.metadata.size)||0;
+        return { path:path, name:f.name, size:size, orphan:!used[path], sel:false }; });
+      renderManager();
+    }catch(e){ if(typeof modal==='function')modal('<p>목록 로드 실패: '+(e&&e.message||'')+'</p><button class="btn" onclick="closeModal()">닫기</button>'); }
+  };
+
+  function renderManager(){
+    var total=_files.reduce(function(s,f){return s+f.size;},0);
+    var orphans=_files.filter(function(f){return f.orphan;});
+    var rows=_files.map(function(f,i){
+      return '<label class="set-sec" style="cursor:pointer;">'
+        +'<input type="checkbox" '+(f.sel?'checked':'')+' onchange="window.__amTgl('+i+')">'
+        +'<span class="ss-name" style="font-size:12px;word-break:break-all;">'+f.name+(f.orphan?' <span style="color:#c1121f;font-weight:800;">[고아]</span>':'')+'</span>'
+        +'<span style="font-size:11px;color:var(--muted);">'+bytes(f.size)+'</span></label>';
+    }).join('') || '<p style="color:var(--muted);text-align:center;padding:14px;">저장된 첨부파일이 없습니다.</p>';
+    modal('<h3><i class="fa-solid fa-database"></i> 첨부 용량 관리</h3>'
+      +'<div style="background:var(--surface-2);border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:13px;">'
+      +'총 <b>'+_files.length+'개</b> · <b>'+bytes(total)+'</b>'
+      +(orphans.length?' · <span style="color:#c1121f;font-weight:700;">고아 '+orphans.length+'개</span>':' · <span style="color:var(--muted);">고아 없음</span>')+'</div>'
+      +'<div style="max-height:300px;overflow:auto;">'+rows+'</div>'
+      +'<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">'
+      +'<button class="btn ghost" style="flex:1;min-width:80px;" onclick="closeModal()">닫기</button>'
+      +(orphans.length?'<button class="btn" style="flex:1;min-width:120px;background:#c1121f;color:#fff;" onclick="window.__amDelOrphans()">고아 '+orphans.length+'개 삭제</button>':'')
+      +'<button class="btn gold" style="flex:1;min-width:80px;" onclick="window.__amDelSel()">선택 삭제</button></div>');
+  }
+  window.__amTgl=function(i){ if(_files[i]) _files[i].sel=!_files[i].sel; };
+  window.__amDelSel=function(){ ask(_files.filter(function(f){return f.sel;}).map(function(f){return f.path;})); };
+  window.__amDelOrphans=function(){ ask(_files.filter(function(f){return f.orphan;}).map(function(f){return f.path;})); };
+  function ask(paths){
+    if(!paths.length){ renderManager(); return; }
+    _pendingDel=paths;
+    modal('<div style="text-align:center;"><div style="font-size:34px;">🗑️</div><h3 style="justify-content:center;">'+paths.length+'개 파일 삭제</h3>'
+      +'<p style="color:var(--ink2);">되돌릴 수 없습니다. 삭제할까요?</p>'
+      +'<div style="display:flex;gap:8px;"><button class="btn ghost" style="flex:1;" onclick="openAttachManager()">취소</button>'
+      +'<button class="btn" style="flex:1;background:#c1121f;color:#fff;" onclick="window.__amConfirm()">삭제</button></div></div>');
+  }
+  window.__amConfirm=async function(){
+    var sb=sbc(); var paths=_pendingDel||[];
+    try{ var r=await sb.storage.from('board-attachments').remove(paths);
+      if(r&&r.error) console.warn('[용량관리] 삭제 경고:', r.error.message);
+      else console.log('[용량관리] 삭제됨:', paths.length+'개');
+    }catch(e){ console.warn('[용량관리] 삭제 예외:', e&&e.message); }
+    window.openAttachManager();
   };
 })();
 </script>
