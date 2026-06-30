@@ -2050,6 +2050,7 @@ updateTeamBtn();
       var selM = s.isAll ? 6 : s.m;
       var gSel = teamGoal(tk,year,selM);
       t.goal = gSel>0 ? gSel : gm;  // 선택월 목표 우선, 없으면 1~6월 중 설정된 값
+      t.goalM = [1,2,3,4,5,6].map(function(mm){ return teamGoal(tk,year,mm); });  /* [연간차트] 월별 목표선용(만원) */
     });
   }
 
@@ -2896,6 +2897,29 @@ updateTeamBtn();
       return _save.apply(this, arguments);
     };
   });
+})();
+</script>
+<!-- ===== [v36.10 / 연간차트 목표선] 단일팀 목표선을 월별(goalM)로 교체 (원본 0 삭제) =====
+     원본은 t.goal(단일값)을 매월 반복해 평평한 선 -> 그린 직후 datasets[목표].data를 t.goalM(월별)로 교체. -->
+<script>
+(function(){
+  if(typeof window.renderChart!=='function') return;
+  var _rc=window.renderChart;
+  window.renderChart=function(){
+    _rc.apply(this,arguments);
+    try{
+      if(typeof chartSel!=='undefined' && chartSel && chartSel.length===1 &&
+         typeof chartObj!=='undefined' && chartObj && chartObj.data && chartObj.data.datasets){
+        var t=(typeof teamById==='function') ? teamById(chartSel[0]) : null;
+        var gm=t && t.goalM;
+        var ds1=chartObj.data.datasets[1];   /* 단일팀 구성: [0]올해실적 [1]목표 [2]전년 */
+        if(gm && gm.length && ds1 && /목표/.test(ds1.label||'')){
+          ds1.data = gm.slice();             /* 월별 목표로 교체 */
+          chartObj.update('none');
+        }
+      }
+    }catch(e){ console.warn('[연간차트] 목표선 보정 경고:', e&&e.message); }
+  };
 })();
 </script>
 </body>
