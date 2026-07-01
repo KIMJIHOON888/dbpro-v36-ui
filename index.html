@@ -2614,9 +2614,43 @@ updateTeamBtn();
   /* 대장 확정 v35 라이브 주소 (2026-06-29) */
   var V35_URL = 'https://db-dashboard-swart.vercel.app/';
 
-  /* v35 작업실을 새 탭으로 열기 (이 대시보드는 그대로 유지) */
+  /* v35 작업실을 새 탭으로 열기 — SSO 토큰 발급 후 ?sso로 무클릭 입장 (원본 세션 전달)
+     팝업차단 회피: 클릭 순간 탭을 먼저 열고, 토큰 준비되면 그 탭 주소를 설정. 실패 시 일반 이동(재로그인) 폴백. */
+  window.__openV35 = function(hash){
+    hash = hash || '';
+    var w = null;
+    try{ w = window.open('about:blank', '_blank'); }catch(e){}   /* 제스처 내 즉시 오픈 */
+    var go = function(u){ try{ if(w && !w.closed){ w.location.href = u; } else { window.open(u, '_blank', 'noopener'); } }catch(e){} };
+    (async function(){
+      var url = V35_URL + hash;
+      try{
+        var sb = window.sbClient;
+        if(sb && sb.auth && sb.auth.getSession){
+          var sres = await sb.auth.getSession();
+          var sess = sres && sres.data && sres.data.session;
+          if(sess && sess.access_token && sess.refresh_token){
+            var tok = 'sso_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+            var me = window.currentUser || {};
+            var ins = await sb.from('sso_tokens').insert({
+              token: tok,
+              auth_id: (sess.user && sess.user.id) || null,
+              phone: me.phone || null,
+              team: me.team || null,
+              access_token: sess.access_token,
+              refresh_token: sess.refresh_token,
+              expires_at: new Date(Date.now() + 120000).toISOString()   /* 2분 만료 */
+            });
+            if(ins && ins.error){ console.warn('[SSO] 토큰 저장 실패, 일반 이동:', ins.error.message); }
+            else { url = V35_URL + '?sso=' + encodeURIComponent(tok) + hash; console.log('[SSO] 무클릭 입장 토큰 발급'); }
+          } else { console.warn('[SSO] v36 세션 없음 - 일반 이동'); }
+        }
+      }catch(e){ console.warn('[SSO] 발급 예외, 일반 이동:', e && e.message); }
+      go(url);
+    })();
+  };
+
   window.openV35Workspace = function(){
-    try{ window.open(V35_URL, '_blank', 'noopener'); }catch(e){}
+    window.__openV35('');
     if(typeof closeModal==='function') closeModal();
   };
 
@@ -2932,7 +2966,7 @@ updateTeamBtn();
 <!-- ===== [버전 표기] auth-version 텍스트를 현재 버전으로 치환 (원본 0 삭제, 작업마다 셋째자리 증가) ===== -->
 <script>
 (function(){
-  var VER='v36.0.15';
+  var VER='v36.0.17';
   function setVer(){ try{
     document.querySelectorAll('.auth-version').forEach(function(e){ e.textContent=VER; });
     var ph=document.getElementById('login-phone'); if(ph) ph.placeholder='휴대폰 번호 (010-1234-5678)';  /* "예: " 제거 - 잘림 방지 */
@@ -3046,6 +3080,83 @@ updateTeamBtn();
     });
   }catch(_){}}
   if(document.readyState!=='loading') place(); else document.addEventListener('DOMContentLoaded', place);
+})();
+</script>
+<!-- ===== [v36.0.16 / 승인 관리] v35 회원승인 이식: 헤더 버튼(관리자/SM) + pending 스코프 + 승인/거절 (원본 0 삭제) =====
+     스코프: 시스템관리자·BM=전체 팀 / SM(team_manager)=본인 팀만. 승인=status approved+역할지정, 거절=rejected. 실금고 app_users 공유라 v35에도 반영. -->
+<script>
+(function(){
+  function ready(fn){ if(document.readyState!=='loading') fn(); else document.addEventListener('DOMContentLoaded',fn); }
+  function sbc(){ return window.sbClient; }
+  function me(){ return window.currentUser || {}; }
+  function canApprove(){ var r=me().role; return r==='system_admin'||r==='branch_manager'||r==='team_manager'; }
+  function isAdminScope(){ var r=me().role; return r==='system_admin'||r==='branch_manager'; }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+  function fmtPhone(p){ p=String(p||'').replace(/\D/g,''); return p.length===11 ? p.replace(/(\d{3})(\d{4})(\d{4})/,'$1-$2-$3') : p; }
+
+  async function fetchPending(){
+    var sb=sbc(); if(!sb) return [];
+    var r=await sb.from('app_users').select('*').eq('status','pending');
+    var rows=(r.data||[]);
+    if(!isAdminScope()){ var myTeam=me().team; rows=rows.filter(function(u){ return u.team===myTeam; }); }  /* SM=본인팀만 */
+    return rows;
+  }
+
+  /* 헤더에 '승인 관리' 버튼 주입 (권한자만) */
+  function injectBtn(){
+    try{
+      var setBtn=document.querySelector('button.btn-h[onclick*="openSettings"]');
+      if(!setBtn || !setBtn.parentNode) return;
+      if(!document.getElementById('approvalBtn')){
+        var b=document.createElement('button');
+        b.id='approvalBtn'; b.className='btn-h'; b.type='button'; b.style.position='relative';
+        b.innerHTML='<i class="fa-solid fa-user-clock"></i> 승인 대기 <span id="approvalBadge" style="display:none;background:#ef4444;color:#fff;font-size:10px;padding:1px 6px;border-radius:10px;margin-left:2px;"></span>';
+        b.onclick=function(){ window.openApprovalManager(); };
+        setBtn.parentNode.insertBefore(b, setBtn);
+      }
+    }catch(e){}
+  }
+  async function updateBadge(){
+    try{
+      var btn=document.getElementById('approvalBtn'); if(!btn) return;
+      if(!canApprove()){ btn.style.display='none'; return; }
+      btn.style.display='';
+      var bad=document.getElementById('approvalBadge'); var p=await fetchPending();
+      if(bad){ if(p.length){ bad.style.display=''; bad.textContent=p.length; } else bad.style.display='none'; }
+    }catch(e){}
+  }
+
+  window.openApprovalManager=async function(){
+    if(!canApprove()){ if(window.modal)modal('<p>승인 대기 열람 권한이 없습니다.</p><button class="btn" onclick="closeModal()">닫기</button>'); return; }
+    if(window.modal) modal('<h3><i class="fa-solid fa-user-clock"></i> 승인 대기</h3><p style="color:var(--muted);text-align:center;padding:16px;">불러오는 중...</p>');
+    try{ renderApproval(await fetchPending()); }
+    catch(e){ if(window.modal)modal('<p>목록 로드 실패: '+(e&&e.message||'')+'</p><button class="btn" onclick="closeModal()">닫기</button>'); }
+  };
+
+  function renderApproval(list){
+    var scope=isAdminScope()?'전체 팀':(me().team||'내 팀');
+    var rows=(list||[]).map(function(u){
+      return '<div class="set-sec" style="align-items:center;gap:8px;">'
+        +'<span style="font-size:13px;"><b>'+esc(u.team||'팀 미지정')+'</b> · '+esc(u.name)+'님 <span style="color:#c1121f;font-weight:700;">승인 대기중</span></span>'
+        +'<span style="margin-left:auto;color:var(--muted);font-size:12px;">'+fmtPhone(u.phone)+'</span></div>';
+    }).join('') || '<p style="color:var(--muted);text-align:center;padding:14px;">승인 대기 중인 신청이 없습니다.</p>';
+    modal('<h3><i class="fa-solid fa-user-clock"></i> 승인 대기 <span style="font-size:11px;color:var(--muted);font-weight:600;">'+scope+' · '+(list?list.length:0)+'명</span></h3>'
+      +'<p style="font-size:12px;color:var(--muted);margin:-2px 0 8px;">승인은 v35 [팀원관리]에서 진행합니다. 아래 버튼으로 이동하세요.</p>'
+      +'<div style="max-height:300px;overflow:auto;">'+rows+'</div>'
+      +'<div style="display:flex;gap:8px;margin-top:10px;">'
+      +'<button class="btn ghost" style="flex:1;" onclick="closeModal()">닫기</button>'
+      +'<button class="btn gold" style="flex:1;" onclick="window.__goV35Members()"><i class="fa-solid fa-arrow-up-right-from-square"></i> v35 팀원관리로 이동</button></div>');
+  }
+  window.__goV35Members=function(){ try{ if(typeof window.__openV35==='function'){ window.__openV35('#members'); } else { window.open('https://db-dashboard-swart.vercel.app/#members','_blank'); } }catch(e){} };
+
+  /* v36은 승인 '쓰기'를 하지 않음(읽기 전용 명단). 승인/거절은 v35 [팀원관리]에서만 진행. */
+
+  /* 로그인마다 실행되는 loadStats 래핑 -> 버튼 주입/갱신 (재로그인·권한변경 대응) */
+  if(typeof window.loadStats==='function'){
+    var _ls=window.loadStats;
+    window.loadStats=function(){ var r=_ls.apply(this,arguments); try{ injectBtn(); updateBadge(); }catch(e){} return r; };
+  }
+  ready(function(){ if(window.currentUser){ injectBtn(); updateBadge(); } });
 })();
 </script>
 </body>
